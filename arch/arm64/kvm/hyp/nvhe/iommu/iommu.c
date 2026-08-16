@@ -345,6 +345,28 @@ void kvm_iommu_reclaim_pages_atomic(void *ptr)
 	hyp_put_page(&iommu_pages_pool_atomic, ptr);
 }
 
+void kvm_iommu_get_page_atomic(void *ptr)
+{
+	hyp_get_page(&iommu_pages_pool_atomic, ptr);
+}
+
+static struct hyp_pool *kvm_iommu_current_pool(void)
+{
+	struct pkvm_hyp_vm *vm = __get_vm();
+
+	return vm ? &vm->iommu_pool : &iommu_host_pool;
+}
+
+void kvm_iommu_get_page(void *ptr)
+{
+	hyp_get_page(kvm_iommu_current_pool(), ptr);
+}
+
+void kvm_iommu_put_page(void *ptr)
+{
+	hyp_put_page(kvm_iommu_current_pool(), ptr);
+}
+
 bool kvm_iommu_host_dabt_handler(struct user_pt_regs *regs, u64 esr, u64 addr)
 {
 	struct kvm_iommu_ops *kvm_iommu_ops;

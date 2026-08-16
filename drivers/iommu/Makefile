@@ -38,3 +38,4 @@ obj-$(CONFIG_SPRD_IOMMU) += sprd-iommu.o
 obj-$(CONFIG_APPLE_DART) += apple-dart.o
 obj-$(CONFIG_IOMMU_DEBUG_PAGEALLOC) += iommu-debug-pagealloc.o
 obj-$(CONFIG_PKVM_PVIOMMU) += pkvm-pviommu.o
+obj-$(CONFIG_ARM_SMMU_TEGRA_PKVM) += arm-smmu-tegra-pkvm.o

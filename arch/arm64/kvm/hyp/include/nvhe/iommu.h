@@ -69,6 +69,9 @@ int kvm_iommu_host_stage2_idmap(phys_addr_t start, phys_addr_t end,
 				 enum kvm_pgtable_prot prot);
 void *kvm_iommu_donate_pages_atomic(u8 order);
 void kvm_iommu_reclaim_pages_atomic(void *ptr);
+void kvm_iommu_get_page_atomic(void *ptr);
+void kvm_iommu_get_page(void *ptr);
+void kvm_iommu_put_page(void *ptr);
 bool kvm_iommu_host_dabt_handler(struct user_pt_regs *regs, u64 esr, u64 addr);
 void kvm_iommu_host_stage2_idmap_complete(bool map);
 

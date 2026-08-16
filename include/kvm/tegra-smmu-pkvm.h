@@ -1,0 +1,103 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+/*
+ * Copyright (C) 2026 TII (SSRC) and the Ghaf contributors
+ */
+#ifndef __KVM_TEGRA_SMMU_PKVM_H
+#define __KVM_TEGRA_SMMU_PKVM_H
+
+#include <linux/bits.h>
+#include <linux/types.h>
+
+#define PKVM_TEGRA_SMMU_MAX_INSTANCES		2
+#define PKVM_TEGRA_SMMU_MAX_DEVICES		4
+#define PKVM_TEGRA_SMMU_MAX_CONTEXT_BANKS	128
+#define PKVM_TEGRA_SMMU_MAX_SMRS		128
+
+struct pkvm_tegra_smmu_device {
+	u64 mmio_addr[PKVM_TEGRA_SMMU_MAX_INSTANCES];
+	u64 mmio_size;
+	u32 num_instances;
+	u32 pgshift;
+	u32 numpage;
+	u32 num_context_banks;
+	u32 num_s2_context_banks;
+	u32 num_mapping_groups;
+	u32 streamid_mask;
+	u32 ias;
+	u32 oas;
+	bool coherent_walk;
+	bool vmid16;
+};
+
+/* SMMUv2 global register space. */
+#define PKVM_SMMU_GR0_SCR0		0x000
+#define PKVM_SMMU_SCR0_PTM		BIT(12)
+#define PKVM_SMMU_SCR0_VMIDPNE		BIT(11)
+#define PKVM_SMMU_SCR0_USFCFG		BIT(10)
+#define PKVM_SMMU_SCR0_BSU		GENMASK(15, 14)
+#define PKVM_SMMU_SCR0_FB		BIT(13)
+#define PKVM_SMMU_SCR0_GCFGFIE		BIT(5)
+#define PKVM_SMMU_SCR0_GCFGFRE		BIT(4)
+#define PKVM_SMMU_SCR0_GFIE		BIT(2)
+#define PKVM_SMMU_SCR0_GFRE		BIT(1)
+#define PKVM_SMMU_SCR0_CLIENTPD		BIT(0)
+#define PKVM_SMMU_SCR0_VMID16EN		BIT(31)
+#define PKVM_SMMU_GR0_SACR		0x010
+#define PKVM_SMMU_GR0_ID0		0x020
+#define PKVM_SMMU_ID0_S2TS		BIT(29)
+#define PKVM_SMMU_ID0_SMS		BIT(27)
+#define PKVM_SMMU_ID0_CTTW		BIT(14)
+#define PKVM_SMMU_ID0_NUMSIDB		GENMASK(12, 9)
+#define PKVM_SMMU_ID0_EXIDS		BIT(8)
+#define PKVM_SMMU_ID0_NUMSMRG		GENMASK(7, 0)
+#define PKVM_SMMU_GR0_ID1		0x024
+#define PKVM_SMMU_ID1_PAGESIZE		BIT(31)
+#define PKVM_SMMU_ID1_NUMPAGENDXB	GENMASK(30, 28)
+#define PKVM_SMMU_ID1_NUMS2CB		GENMASK(23, 16)
+#define PKVM_SMMU_ID1_NUMCB		GENMASK(7, 0)
+#define PKVM_SMMU_GR0_ID2		0x028
+#define PKVM_SMMU_ID2_PTFS_4K		BIT(12)
+#define PKVM_SMMU_ID2_VMID16		BIT(15)
+#define PKVM_SMMU_ID2_OAS		GENMASK(7, 4)
+#define PKVM_SMMU_ID2_IAS		GENMASK(3, 0)
+#define PKVM_SMMU_GR0_GFSR		0x048
+#define PKVM_SMMU_GR0_TLBIVMID		0x064
+#define PKVM_SMMU_GR0_TLBIALLNSNH	0x068
+#define PKVM_SMMU_GR0_TLBIALLH		0x06c
+#define PKVM_SMMU_GR0_TLBGSYNC		0x070
+#define PKVM_SMMU_GR0_TLBGSTATUS	0x074
+#define PKVM_SMMU_TLBGSTATUS_ACTIVE	BIT(0)
+#define PKVM_SMMU_GR0_SMR(n)		(0x800 + ((n) << 2))
+#define PKVM_SMMU_SMR_VALID		BIT(31)
+#define PKVM_SMMU_SMR_ID		GENMASK(15, 0)
+#define PKVM_SMMU_GR0_S2CR(n)		(0xc00 + ((n) << 2))
+#define PKVM_SMMU_S2CR_TYPE		GENMASK(17, 16)
+#define PKVM_SMMU_S2CR_TYPE_TRANS	0
+#define PKVM_SMMU_S2CR_TYPE_FAULT	2
+#define PKVM_SMMU_S2CR_CBNDX		GENMASK(7, 0)
+
+/* SMMUv2 global register page 1. */
+#define PKVM_SMMU_GR1_CBAR(n)		((n) << 2)
+#define PKVM_SMMU_CBAR_TYPE		GENMASK(17, 16)
+#define PKVM_SMMU_CBAR_TYPE_S2		0
+#define PKVM_SMMU_CBAR_VMID		GENMASK(7, 0)
+#define PKVM_SMMU_GR1_CBA2R(n)		(0x800 + ((n) << 2))
+#define PKVM_SMMU_CBA2R_VA64		BIT(0)
+#define PKVM_SMMU_CBA2R_VMID16		GENMASK(31, 16)
+
+/* SMMUv2 context bank register space. */
+#define PKVM_SMMU_CB_SCTLR		0x000
+#define PKVM_SMMU_SCTLR_AFE		BIT(2)
+#define PKVM_SMMU_SCTLR_TRE		BIT(1)
+#define PKVM_SMMU_SCTLR_M		BIT(0)
+#define PKVM_SMMU_CB_TTBR0		0x020
+#define PKVM_SMMU_CB_TCR		0x030
+#define PKVM_SMMU_VTCR_RES1		BIT(31)
+#define PKVM_SMMU_VTCR_PS		GENMASK(18, 16)
+#define PKVM_SMMU_CB_FSR		0x058
+#define PKVM_SMMU_CB_TLBIIPAS2		0x630
+#define PKVM_SMMU_CB_TLBIIPAS2L	0x638
+#define PKVM_SMMU_CB_TLBSYNC		0x7f0
+#define PKVM_SMMU_CB_TLBSTATUS		0x7f4
+
+#endif /* __KVM_TEGRA_SMMU_PKVM_H */
