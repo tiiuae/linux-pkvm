@@ -1885,6 +1885,7 @@ struct kvm_iommu_driver {
 	int (*get_device_iommu_num_ids)(struct device *dev);
 	int (*get_device_iommu_id)(struct device *dev, u32 id,
 				   pkvm_handle_t *out_iommu, u32 *out_sid);
+	int (*prepare_protected_device)(struct device *dev);
 	int (*get_iommu_endpoint)(struct of_phandle_args *iommu_spec,
 				  u64 *out_endpoint);
 	struct list_head node;
@@ -1910,6 +1911,7 @@ size_t kvm_iommu_pages(void);
 int kvm_get_iommu_id_by_of(struct device_node *np, pkvm_handle_t *out_id);
 int kvm_get_iommu_endpoint(struct of_phandle_args *iommu_spec,
 			   u64 *out_endpoint);
+int kvm_iommu_prepare_protected_device(struct device *dev);
 
 int pkvm_iommu_resume(int device_id);
 int pkvm_iommu_suspend(int device_id);

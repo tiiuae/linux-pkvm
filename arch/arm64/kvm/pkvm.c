@@ -13,6 +13,7 @@
 #include <linux/memblock.h>
 #include <linux/mutex.h>
 #include <linux/of_address.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 
 #include <asm/kvm_pkvm.h>
@@ -298,6 +299,7 @@ static int pkvm_register_device(struct of_phandle_args *args,
 				struct pkvm_device *dev)
 {
 	struct device_node *np = args->np;
+	struct platform_device *pdev;
 	struct of_phandle_args iommu_spec;
 	u32 group_id = args->args[0];
 	struct resource res;
@@ -349,6 +351,15 @@ static int pkvm_register_device(struct of_phandle_args *args,
 
 	dev->nr_iommus = idx;
 	dev->group_id = group_id;
+
+	pdev = of_find_device_by_node(np);
+	if (!pdev)
+		return -ENODEV;
+	ret = kvm_iommu_prepare_protected_device(&pdev->dev);
+	put_device(&pdev->dev);
+	if (ret)
+		return ret;
+
 	return 0;
 }
 

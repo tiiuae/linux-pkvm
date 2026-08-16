@@ -504,11 +504,26 @@ static int pkvm_tegra_device_id(struct device *dev, u32 idx,
 	return 0;
 }
 
+static int pkvm_tegra_prepare_protected_device(struct device *dev)
+{
+	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
+	struct pkvm_tegra_host_smmu *smmu;
+
+	if (!fwspec)
+		return 0;
+	smmu = pkvm_tegra_smmu_from_fwnode(fwspec->iommu_fwnode);
+	if (!smmu)
+		return 0;
+
+	return tegra_mc_lock_device_stream_id(smmu->mc, dev);
+}
+
 static struct kvm_iommu_driver pkvm_tegra_driver = {
 	.init_driver = pkvm_tegra_init_driver,
 	.get_iommu_id_by_of = pkvm_tegra_get_iommu_id_by_of,
 	.get_device_iommu_num_ids = pkvm_tegra_device_num_ids,
 	.get_device_iommu_id = pkvm_tegra_device_id,
+	.prepare_protected_device = pkvm_tegra_prepare_protected_device,
 };
 
 static int __init pkvm_tegra_register(void)

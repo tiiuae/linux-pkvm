@@ -129,6 +129,15 @@ int tegra_mc_probe_device(struct tegra_mc *mc, struct device *dev)
 }
 EXPORT_SYMBOL_GPL(tegra_mc_probe_device);
 
+int tegra_mc_lock_device_stream_id(struct tegra_mc *mc, struct device *dev)
+{
+	if (mc->soc->ops && mc->soc->ops->lock_device_stream_id)
+		return mc->soc->ops->lock_device_stream_id(mc, dev);
+
+	return -EOPNOTSUPP;
+}
+EXPORT_SYMBOL_GPL(tegra_mc_lock_device_stream_id);
+
 int tegra_mc_get_carveout_info(struct tegra_mc *mc, unsigned int id,
                                phys_addr_t *base, u64 *size)
 {

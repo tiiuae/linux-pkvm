@@ -154,6 +154,70 @@ static int tegra186_mc_probe_device(struct tegra_mc *mc, struct device *dev)
 	return 0;
 }
 
+static int tegra186_mc_lock_client_sid(struct tegra_mc *mc,
+				       const struct tegra_mc_client *client,
+				       unsigned int sid)
+{
+	u32 value;
+
+	if (!client->regs.sid.security && !client->regs.sid.override)
+		return 0;
+
+	tegra186_mc_client_sid_override(mc, client, sid);
+	value = readl(mc->regs + client->regs.sid.override);
+	if ((value & MC_SID_STREAMID_OVERRIDE_MASK) != sid)
+		return -EPERM;
+
+	value = readl(mc->regs + client->regs.sid.security);
+	value |= MC_SID_STREAMID_SECURITY_WRITE_ACCESS_DISABLED;
+	writel(value, mc->regs + client->regs.sid.security);
+	value = readl(mc->regs + client->regs.sid.security);
+	if (!(value & MC_SID_STREAMID_SECURITY_WRITE_ACCESS_DISABLED))
+		return -EACCES;
+
+	return 0;
+}
+
+static int
+tegra186_mc_lock_device_stream_id(struct tegra_mc *mc, struct device *dev)
+{
+#if IS_ENABLED(CONFIG_IOMMU_API)
+	struct of_phandle_args args;
+	unsigned long flags;
+	unsigned int i, index = 0;
+	u32 sid;
+	int err = 0;
+
+	if (!tegra_dev_iommu_get_stream_id(dev, &sid))
+		return -EINVAL;
+	sid &= MC_SID_STREAMID_OVERRIDE_MASK;
+
+	while (!of_parse_phandle_with_args(dev->of_node, "interconnects",
+					   "#interconnect-cells", index++, &args)) {
+		if (args.np == mc->dev->of_node && args.args_count) {
+			for (i = 0; i < mc->soc->num_clients; i++) {
+				const struct tegra_mc_client *client =
+					&mc->soc->clients[i];
+
+				if (client->id != args.args[0])
+					continue;
+				spin_lock_irqsave(&mc->lock, flags);
+				err = tegra186_mc_lock_client_sid(mc, client, sid);
+				spin_unlock_irqrestore(&mc->lock, flags);
+				break;
+			}
+		}
+		of_node_put(args.np);
+		if (err)
+			break;
+	}
+
+	return err;
+#else
+	return -EOPNOTSUPP;
+#endif
+}
+
 static int tegra186_mc_resume(struct tegra_mc *mc)
 {
 #if IS_ENABLED(CONFIG_IOMMU_API)
@@ -174,6 +238,7 @@ const struct tegra_mc_ops tegra186_mc_ops = {
 	.remove = tegra186_mc_remove,
 	.resume = tegra186_mc_resume,
 	.probe_device = tegra186_mc_probe_device,
+	.lock_device_stream_id = tegra186_mc_lock_device_stream_id,
 };
 
 #if defined(CONFIG_ARCH_TEGRA_186_SOC)

@@ -425,6 +425,24 @@ int kvm_get_iommu_endpoint(struct of_phandle_args *iommu_spec, u64 *out_endpoint
 	return ret;
 }
 
+int kvm_iommu_prepare_protected_device(struct device *dev)
+{
+	struct kvm_iommu_driver *driver;
+	int ret = 0;
+
+	mutex_lock(&kvm_iommu_reg_lock);
+	list_for_each_entry(driver, &kvm_iommu_drivers, node) {
+		if (!driver->prepare_protected_device)
+			continue;
+		ret = driver->prepare_protected_device(dev);
+		if (ret)
+			break;
+	}
+	mutex_unlock(&kvm_iommu_reg_lock);
+
+	return ret;
+}
+
 int kvm_iommu_device_num_ids(struct device *dev)
 {
 	int ret = 0;
