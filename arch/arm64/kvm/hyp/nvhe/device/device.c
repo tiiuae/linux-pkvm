@@ -39,6 +39,8 @@ int pkvm_init_devices(void)
 				     dev_sz >> PAGE_SHIFT);
 	if (ret)
 		registered_devices_nr = 0;
+	else
+		kvm_iommu_init_devices();
 	return ret;
 }
 

@@ -14,6 +14,7 @@
 #include <linux/io.h>
 #include <linux/iommu.h>
 
+#include <kvm/device.h>
 #include <kvm/tegra-smmu-pkvm.h>
 
 #include <nvhe/alloc.h>
@@ -24,6 +25,14 @@
 #include <nvhe/spinlock.h>
 
 #define PKVM_TEGRA_TLB_SPINS		1000000
+#define PKVM_TEGRA_MGBE_RESET_SPINS	2000000
+
+#define PKVM_TEGRA_MGBE0_HV_BASE	0x06800000
+#define PKVM_TEGRA_MGBE0_MAC_BASE	0x06810000
+
+#define PKVM_TEGRA_MGBE_WRAP_INTR_ENABLE	0x8704
+#define PKVM_TEGRA_MGBE_DMA_MODE		0x3000
+#define PKVM_TEGRA_MGBE_DMA_MODE_SWR	BIT(0)
 
 struct pkvm_tegra_hyp_smmu {
 	struct pkvm_tegra_smmu_device *params;
@@ -52,6 +61,54 @@ static struct pkvm_tegra_hyp_smmu
 static struct pkvm_tegra_hyp_domain tegra_identity_domain;
 static struct kvm_pgtable_mm_ops tegra_identity_mm_ops;
 static struct kvm_pgtable_mm_ops tegra_domain_mm_ops;
+
+struct pkvm_tegra_mgbe {
+	phys_addr_t hv_base;
+	phys_addr_t mac_base;
+};
+
+static struct pkvm_tegra_mgbe tegra_mgbe0 = {
+	.hv_base = PKVM_TEGRA_MGBE0_HV_BASE,
+	.mac_base = PKVM_TEGRA_MGBE0_MAC_BASE,
+};
+
+static int tegra_mgbe_reset(void *cookie, bool host_to_guest)
+{
+	struct pkvm_tegra_mgbe *mgbe = cookie;
+	void __iomem *mac = hyp_phys_to_virt(mgbe->mac_base);
+	u32 value;
+	unsigned int spin;
+
+	(void)host_to_guest;
+
+	/* The guest driver restores this wrapper interrupt gate. */
+	writel_relaxed(0, mac + PKVM_TEGRA_MGBE_WRAP_INTR_ENABLE);
+	value = readl_relaxed(mac + PKVM_TEGRA_MGBE_DMA_MODE);
+	writel_relaxed(value | PKVM_TEGRA_MGBE_DMA_MODE_SWR,
+		       mac + PKVM_TEGRA_MGBE_DMA_MODE);
+
+	for (spin = 0; spin < PKVM_TEGRA_MGBE_RESET_SPINS; spin++) {
+		value = readl_relaxed(mac + PKVM_TEGRA_MGBE_DMA_MODE);
+		if (!(value & PKVM_TEGRA_MGBE_DMA_MODE_SWR))
+			return 0;
+		cpu_relax();
+	}
+
+	return -ETIMEDOUT;
+}
+
+static struct pkvm_device_ops tegra_mgbe_ops = {
+	.reset = tegra_mgbe_reset,
+};
+
+static void tegra_init_devices(void)
+{
+	int ret;
+
+	ret = pkvm_device_register_ops(tegra_mgbe0.hv_base, &tegra_mgbe_ops,
+				       &tegra_mgbe0);
+	WARN_ON(ret && ret != -ENODEV);
+}
 
 static void __iomem *tegra_smmu_page(struct pkvm_tegra_hyp_smmu *smmu,
 				     unsigned int instance,
@@ -777,6 +834,7 @@ static int tegra_init(pkvm_handle_t driver_id)
 
 struct kvm_iommu_ops pkvm_tegra_smmu_ops = {
 	.init = tegra_init,
+	.init_devices = tegra_init_devices,
 	.host_stage2_idmap = tegra_host_stage2_idmap,
 	.alloc_domain = tegra_alloc_domain,
 	.free_domain = tegra_free_domain,

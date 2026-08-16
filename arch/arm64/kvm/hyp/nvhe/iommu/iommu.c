@@ -225,6 +225,17 @@ int kvm_iommu_register_ops(struct kvm_iommu_ops *ops, pkvm_handle_t *drv_id)
 	return ret;
 }
 
+void kvm_iommu_init_devices(void)
+{
+	struct kvm_iommu_ops *ops;
+
+	kvm_iommu_drv_lock();
+	for_each_drv(ops)
+		if (ops->init_devices)
+			ops->init_devices();
+	kvm_iommu_drv_unlock();
+}
+
 int kvm_iommu_host_stage2_idmap(phys_addr_t start, phys_addr_t end, enum kvm_pgtable_prot prot)
 {
 	struct kvm_iommu_ops *kvm_iommu_ops;
