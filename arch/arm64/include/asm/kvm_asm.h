@@ -93,6 +93,7 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___vgic_v5_restore_vmcr_apr,
 	__KVM_HOST_SMCCC_FUNC___pkvm_iommu_register_ops,
 	__KVM_HOST_SMCCC_FUNC___pkvm_devices_init,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_set_identity,
 
 	MARKER(__KVM_HOST_SMCCC_FUNC_PKVM_ONLY),
 
@@ -126,7 +127,6 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_map_pages,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_unmap_pages,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_iova_to_phys,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_set_identity,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_map_sg,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_iotlb_inv_nested_domain,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_nested_cfg_sync,

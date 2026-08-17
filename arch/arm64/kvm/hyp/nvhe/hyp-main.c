@@ -1042,6 +1042,7 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__vgic_v5_restore_vmcr_apr),
 	HANDLE_FUNC(__pkvm_iommu_register_ops),
 	HANDLE_FUNC(__pkvm_devices_init),
+	HANDLE_FUNC(__pkvm_host_iommu_set_identity),
 
 	HANDLE_FUNC(__pkvm_host_share_hyp),
 	HANDLE_FUNC(__pkvm_host_unshare_hyp),
@@ -1072,7 +1073,6 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__pkvm_host_iommu_map_pages),
 	HANDLE_FUNC(__pkvm_host_iommu_unmap_pages),
 	HANDLE_FUNC(__pkvm_host_iommu_iova_to_phys),
-	HANDLE_FUNC(__pkvm_host_iommu_set_identity),
 	HANDLE_FUNC(__pkvm_host_iommu_map_sg),
 	HANDLE_FUNC(__pkvm_host_iommu_iotlb_inv_nested_domain),
 	HANDLE_FUNC(__pkvm_host_iommu_nested_cfg_sync),
