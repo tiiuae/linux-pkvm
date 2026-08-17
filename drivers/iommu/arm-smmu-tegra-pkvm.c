@@ -391,8 +391,14 @@ static int pkvm_tegra_probe(struct platform_device *pdev)
 		(1U << FIELD_GET(PKVM_SMMU_ID0_NUMSIDB, id0)) - 1;
 	hyp_smmu->ias = pkvm_tegra_id_size(FIELD_GET(PKVM_SMMU_ID2_IAS, id2));
 	hyp_smmu->oas = pkvm_tegra_id_size(FIELD_GET(PKVM_SMMU_ID2_OAS, id2));
-	hyp_smmu->coherent_walk = of_dma_is_coherent(dev->of_node) ||
-				  !!(id0 & PKVM_SMMU_ID0_CTTW);
+	/*
+	 * Match the Arm SMMU driver's coherency policy: firmware is the
+	 * authority even when IDR0.CTTW advertises coherent table walks. This
+	 * also covers implementations whose ID register is configured
+	 * incorrectly. Tegra234 does not mark these SMMUs dma-coherent, so the
+	 * hypervisor must publish page-table updates explicitly.
+	 */
+	hyp_smmu->coherent_walk = of_dma_is_coherent(dev->of_node);
 	hyp_smmu->vmid16 = !!(id2 & PKVM_SMMU_ID2_VMID16);
 	if ((hyp_smmu->pgshift != 12 && hyp_smmu->pgshift != 16) ||
 	    hyp_smmu->mmio_size <
