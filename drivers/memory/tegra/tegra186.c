@@ -158,17 +158,22 @@ static int tegra186_mc_lock_client_sid(struct tegra_mc *mc,
 				       const struct tegra_mc_client *client,
 				       unsigned int sid)
 {
-	u32 value;
+	u32 effective_sid, value;
 
 	if (!client->regs.sid.security && !client->regs.sid.override)
 		return 0;
 
 	tegra186_mc_client_sid_override(mc, client, sid);
-	value = readl(mc->regs + client->regs.sid.override);
-	if ((value & MC_SID_STREAMID_OVERRIDE_MASK) != sid)
+	value = readl(mc->regs + client->regs.sid.security);
+	if (value & MC_SID_STREAMID_SECURITY_OVERRIDE) {
+		effective_sid = readl(mc->regs + client->regs.sid.override);
+		effective_sid &= MC_SID_STREAMID_OVERRIDE_MASK;
+	} else {
+		effective_sid = client->sid & MC_SID_STREAMID_OVERRIDE_MASK;
+	}
+	if (effective_sid != sid)
 		return -EPERM;
 
-	value = readl(mc->regs + client->regs.sid.security);
 	value |= MC_SID_STREAMID_SECURITY_WRITE_ACCESS_DISABLED;
 	writel(value, mc->regs + client->regs.sid.security);
 	value = readl(mc->regs + client->regs.sid.security);
