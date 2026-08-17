@@ -92,6 +92,7 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___vgic_v5_save_apr,
 	__KVM_HOST_SMCCC_FUNC___vgic_v5_restore_vmcr_apr,
 	__KVM_HOST_SMCCC_FUNC___pkvm_iommu_register_ops,
+	__KVM_HOST_SMCCC_FUNC___pkvm_iommu_debug_read,
 	__KVM_HOST_SMCCC_FUNC___pkvm_devices_init,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_set_identity,
 

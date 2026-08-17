@@ -229,6 +229,16 @@ int kvm_iommu_register_ops(struct kvm_iommu_ops *ops, pkvm_handle_t *drv_id)
 	return ret;
 }
 
+int kvm_iommu_debug_read(pkvm_handle_t drv_id, pkvm_handle_t iommu_id,
+			 u32 selector, u64 *value0, u64 *value1)
+{
+	struct kvm_iommu_ops *ops = get_drv(drv_id);
+
+	if (!ops || !ops->debug_read)
+		return -EOPNOTSUPP;
+	return ops->debug_read(iommu_id, selector, value0, value1);
+}
+
 void kvm_iommu_init_devices(void)
 {
 	struct kvm_iommu_ops *ops;

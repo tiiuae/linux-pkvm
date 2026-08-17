@@ -850,6 +850,100 @@ static int tegra_iommu_token(pkvm_handle_t iommu_id, u64 *out_token)
 	return 0;
 }
 
+static int tegra_debug_leaf(u64 iova, u64 *value0, u64 *value1)
+{
+	struct pkvm_tegra_hyp_domain *domain = &tegra_identity_domain;
+	kvm_pte_t pte;
+	s8 level;
+	int ret;
+
+	ret = kvm_pgtable_get_leaf(&domain->pgt, iova, &pte, &level);
+	if (ret)
+		return ret;
+	*value0 = pte;
+	*value1 = (u64)(u8)level << 56;
+	if (kvm_pte_valid(pte))
+		*value1 |= kvm_pte_to_phys(pte) +
+			(iova & (kvm_granule_size(level) - 1));
+	return 0;
+}
+
+static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
+			    u64 *value0, u64 *value1)
+{
+	struct pkvm_tegra_hyp_domain *domain = &tegra_identity_domain;
+	struct pkvm_tegra_hyp_smmu *smmu = tegra_smmu_from_id(iommu_id);
+	void __iomem *cb;
+	unsigned int i;
+
+	if (!smmu)
+		return -ENODEV;
+	cb = tegra_smmu_cb(smmu, 0, domain->cb);
+	switch (selector) {
+	case 0:
+		*value0 = domain->mmu.vtcr;
+		*value1 = domain->mmu.pgd_phys;
+		return 0;
+	case 1:
+		*value0 = readl_relaxed(cb + PKVM_SMMU_CB_TCR);
+		*value1 = readq_relaxed(cb + PKVM_SMMU_CB_TTBR0);
+		return 0;
+	case 2:
+		*value0 = readl_relaxed(smmu->base[0] + PKVM_SMMU_GR0_SCR0);
+		*value1 = readl_relaxed(cb + PKVM_SMMU_CB_SCTLR);
+		return 0;
+	case 3:
+		*value0 = readl_relaxed(tegra_smmu_page(smmu, 0, 1) +
+				       PKVM_SMMU_GR1_CBAR(domain->cb));
+		*value1 = readl_relaxed(tegra_smmu_page(smmu, 0, 1) +
+				       PKVM_SMMU_GR1_CBA2R(domain->cb));
+		return 0;
+	case 4:
+		for (i = 0; i < smmu->params->num_mapping_groups; i++) {
+			u32 smr = readl_relaxed(tegra_smmu_page(smmu, 0, 0) +
+						PKVM_SMMU_GR0_SMR(i));
+
+			if ((smr & PKVM_SMMU_SMR_VALID) &&
+			    FIELD_GET(PKVM_SMMU_SMR_ID, smr) == 2) {
+				*value0 = ((u64)i << 32) | smr;
+				*value1 = readl_relaxed(
+					tegra_smmu_page(smmu, 0, 0) +
+					PKVM_SMMU_GR0_S2CR(i));
+				return 0;
+			}
+		}
+		return -ENOENT;
+	case 5:
+		return tegra_debug_leaf(0x00000003ffffff00ULL,
+					value0, value1);
+	case 6:
+		return tegra_debug_leaf(0x000000ffffffff00ULL,
+					value0, value1);
+	case 7:
+		*value0 = ((u64)domain->pgt.ia_bits << 32) |
+			  (u8)domain->pgt.start_level;
+		*value1 = kvm_pgtable_stage2_pgd_size(domain->mmu.vtcr);
+		return 0;
+	case 8:
+		if (smmu->params->num_instances < 2)
+			return -ENOENT;
+		cb = tegra_smmu_cb(smmu, 1, domain->cb);
+		*value0 = readl_relaxed(cb + PKVM_SMMU_CB_TCR);
+		*value1 = readq_relaxed(cb + PKVM_SMMU_CB_TTBR0);
+		return 0;
+	case 9:
+		if (smmu->params->num_instances < 2)
+			return -ENOENT;
+		cb = tegra_smmu_cb(smmu, 1, domain->cb);
+		*value0 = readl_relaxed(tegra_smmu_page(smmu, 1, 0) +
+				       PKVM_SMMU_GR0_SCR0);
+		*value1 = readl_relaxed(cb + PKVM_SMMU_CB_SCTLR);
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
 static void tegra_snapshot_start(void)
 {
 	tegra_snapshotting = true;
@@ -976,4 +1070,5 @@ struct kvm_iommu_ops pkvm_tegra_smmu_ops = {
 	.set_identity = tegra_set_identity,
 	.dev_block_dma = tegra_dev_block_dma,
 	.get_iommu_token_by_id = tegra_iommu_token,
+	.debug_read = tegra_debug_read,
 };

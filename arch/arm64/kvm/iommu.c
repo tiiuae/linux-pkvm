@@ -80,6 +80,21 @@ int kvm_iommu_register_hyp_ops(struct kvm_iommu_ops *hyp_ops, pkvm_handle_t *drv
 }
 EXPORT_SYMBOL(kvm_iommu_register_hyp_ops);
 
+int kvm_iommu_debug_read(pkvm_handle_t drv_id, pkvm_handle_t iommu_id,
+			 u32 selector, u64 *value0, u64 *value1)
+{
+	struct arm_smccc_res res;
+
+	res = kvm_call_hyp_nvhe_smccc(__pkvm_iommu_debug_read, drv_id,
+				       iommu_id, selector);
+	if ((int)res.a1)
+		return (int)res.a1;
+	*value0 = res.a2;
+	*value1 = res.a3;
+	return 0;
+}
+EXPORT_SYMBOL(kvm_iommu_debug_read);
+
 int kvm_iommu_init_driver(void)
 {
 	struct kvm_iommu_driver *driver;

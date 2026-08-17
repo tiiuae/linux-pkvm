@@ -58,6 +58,8 @@ struct kvm_iommu_ops {
 	int (*dev_block_dma)(pkvm_handle_t iommu, u32 endpoint_id,
 			     bool is_host_to_guest);
 	int (*get_iommu_token_by_id)(pkvm_handle_t smmu_id, u64 *out_token);
+	int (*debug_read)(pkvm_handle_t iommu, u32 selector,
+			  u64 *value0, u64 *value1);
 	void (*iotlb_inv_nested_domain)(struct kvm_hyp_iommu_domain *domain, unsigned long iova,
 					size_t size, size_t granule, bool leaf);
 	int (*nested_cfg_sync)(pkvm_handle_t iommu, void *cmd_desc, size_t cmd_desc_size);
@@ -67,6 +69,8 @@ struct kvm_iommu_ops {
 
 int kvm_iommu_init(void *pool_base, size_t nr_pages);
 int kvm_iommu_register_ops(struct kvm_iommu_ops *ops, pkvm_handle_t *drv_id);
+int kvm_iommu_debug_read(pkvm_handle_t drv_id, pkvm_handle_t iommu_id,
+			 u32 selector, u64 *value0, u64 *value1);
 void kvm_iommu_init_devices(void);
 
 int kvm_iommu_host_stage2_idmap(phys_addr_t start, phys_addr_t end,

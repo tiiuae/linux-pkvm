@@ -672,6 +672,19 @@ static void handle___pkvm_iommu_register_ops(struct kvm_cpu_context *host_ctxt)
 	cpu_reg(host_ctxt, 2) = drv_id;
 }
 
+static void handle___pkvm_iommu_debug_read(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, drv_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 2);
+	DECLARE_REG(u32, selector, host_ctxt, 3);
+	u64 value0 = 0, value1 = 0;
+
+	cpu_reg(host_ctxt, 1) = kvm_iommu_debug_read(drv_id, iommu_id,
+						     selector, &value0, &value1);
+	cpu_reg(host_ctxt, 2) = value0;
+	cpu_reg(host_ctxt, 3) = value1;
+}
+
 static void handle___pkvm_devices_init(struct kvm_cpu_context *host_ctxt)
 {
 	cpu_reg(host_ctxt, 1) = pkvm_init_devices();
@@ -1041,6 +1054,7 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__vgic_v5_save_apr),
 	HANDLE_FUNC(__vgic_v5_restore_vmcr_apr),
 	HANDLE_FUNC(__pkvm_iommu_register_ops),
+	HANDLE_FUNC(__pkvm_iommu_debug_read),
 	HANDLE_FUNC(__pkvm_devices_init),
 	HANDLE_FUNC(__pkvm_host_iommu_set_identity),
 

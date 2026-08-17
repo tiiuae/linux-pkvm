@@ -477,9 +477,23 @@ static int pkvm_tegra_init_driver(void)
 	ret = kvm_iommu_register_hyp_ops(hyp_ops, &pkvm_tegra_hyp_driver);
 	if (ret)
 		return ret;
+	ret = driver_for_each_device(&pkvm_tegra_smmu_driver.driver, NULL,
+				     NULL, pkvm_tegra_register_iommu);
+	if (ret)
+		return ret;
+	for (size_t iommu = 0; iommu < pkvm_tegra_smmu_count; iommu++) {
+		for (u32 selector = 0; selector < 10; selector++) {
+			u64 value0 = 0, value1 = 0;
 
-	return driver_for_each_device(&pkvm_tegra_smmu_driver.driver, NULL,
-				      NULL, pkvm_tegra_register_iommu);
+			ret = kvm_iommu_debug_read(pkvm_tegra_hyp_driver, iommu,
+						   selector, &value0, &value1);
+			pr_info("tegra-pkvm-debug: iommu=%zu selector=%u ret=%d value0=%#llx value1=%#llx\n",
+				iommu, selector, ret,
+				(unsigned long long)value0,
+				(unsigned long long)value1);
+		}
+	}
+	return 0;
 }
 
 static int pkvm_tegra_get_iommu_id_by_of(struct device_node *np,
