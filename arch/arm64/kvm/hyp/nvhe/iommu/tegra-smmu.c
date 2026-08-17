@@ -302,13 +302,20 @@ tegra_smmu_address_bits(struct pkvm_tegra_hyp_smmu *smmu)
 		   min(smmu->params->ias, smmu->params->oas));
 }
 
-static u64 tegra_vtcr(unsigned int address_bits)
+static u64 tegra_vtcr(unsigned int address_bits, bool coherent_walk)
 {
 	u64 vtcr = kvm_get_vtcr(id_aa64mmfr0_el1_sys_val,
 				id_aa64mmfr1_el1_sys_val, address_bits);
 
 	vtcr &= ~PKVM_SMMU_VTCR_PS;
 	vtcr |= FIELD_PREP(PKVM_SMMU_VTCR_PS, tegra_ps(address_bits));
+	if (!coherent_walk) {
+		/* Match arm_64_lpae_alloc_pgtable_s2() for non-coherent walks. */
+		vtcr &= ~(PKVM_SMMU_VTCR_SH0 | PKVM_SMMU_VTCR_ORGN0 |
+			  PKVM_SMMU_VTCR_IRGN0);
+		vtcr |= FIELD_PREP(PKVM_SMMU_VTCR_SH0,
+				   PKVM_SMMU_VTCR_SH0_OS);
+	}
 	/*
 	 * Arm SMMUv2 requires a concatenated level-1 root for a 40- or
 	 * 42-bit output address size with 4K tables. KVM otherwise selects a
@@ -326,12 +333,13 @@ static u64 tegra_vtcr(unsigned int address_bits)
 
 static int tegra_init_pgtable(struct pkvm_tegra_hyp_domain *domain,
 			      struct kvm_pgtable_mm_ops *mm_ops,
-			      unsigned int address_bits, bool identity)
+			      unsigned int address_bits, bool identity,
+			      bool coherent_walk)
 {
 	int ret;
 
 	memset(&domain->mmu, 0, sizeof(domain->mmu));
-	domain->mmu.vtcr = tegra_vtcr(address_bits);
+	domain->mmu.vtcr = tegra_vtcr(address_bits, coherent_walk);
 	domain->mmu.pgt = &domain->pgt;
 	atomic64_set(&domain->mmu.vmid.id, 0);
 	ret = __kvm_pgtable_stage2_init(&domain->pgt, &domain->mmu, mm_ops,
@@ -598,7 +606,8 @@ static int tegra_alloc_domain(pkvm_handle_t iommu_id,
 	hyp_spin_unlock(&smmu->lock);
 
 	ret = tegra_init_pgtable(domain, &tegra_domain_mm_ops,
-				 tegra_smmu_address_bits(smmu), false);
+				 tegra_smmu_address_bits(smmu), false,
+				 smmu->params->coherent_walk);
 	if (ret)
 		goto err_cb;
 	tegra_program_context(smmu, domain);
@@ -940,7 +949,8 @@ static int tegra_init(pkvm_handle_t driver_id)
 	hyp_spin_lock_init(&tegra_identity_domain.lock);
 	ret = tegra_init_pgtable(&tegra_identity_domain,
 				 &tegra_identity_mm_ops,
-				 address_bits, true);
+				 address_bits, true,
+				 !tegra_noncoherent_walk);
 	if (ret)
 		return PKVM_TEGRA_DIAG_INIT_PGTABLE;
 	for (i = 0; i < pkvm_tegra_smmu_count; i++)
