@@ -196,15 +196,23 @@ static void *tegra_atomic_zalloc_page(void *arg)
 
 static void *tegra_atomic_zalloc_pages_exact(size_t size)
 {
-	if (size != PAGE_SIZE)
+	void *addr;
+
+	if (size != (PAGE_SIZE << get_order(size)))
 		return NULL;
-	return kvm_iommu_donate_pages_atomic(0);
+	addr = kvm_iommu_donate_pages_atomic(get_order(size));
+	if (addr)
+		hyp_split_page(hyp_virt_to_page(addr));
+	return addr;
 }
 
 static void tegra_atomic_free_pages_exact(void *addr, size_t size)
 {
-	WARN_ON(size != PAGE_SIZE);
-	kvm_iommu_reclaim_pages_atomic(addr);
+	while (size) {
+		kvm_iommu_reclaim_pages_atomic(addr);
+		addr += PAGE_SIZE;
+		size -= PAGE_SIZE;
+	}
 }
 
 static int tegra_page_count(void *addr)
@@ -225,15 +233,23 @@ static void *tegra_domain_zalloc_page(void *arg)
 
 static void *tegra_domain_zalloc_pages_exact(size_t size)
 {
-	if (size != PAGE_SIZE)
+	void *addr;
+
+	if (size != (PAGE_SIZE << get_order(size)))
 		return NULL;
-	return kvm_iommu_donate_page();
+	addr = kvm_iommu_donate_pages(get_order(size), 0);
+	if (addr)
+		hyp_split_page(hyp_virt_to_page(addr));
+	return addr;
 }
 
 static void tegra_domain_free_pages_exact(void *addr, size_t size)
 {
-	WARN_ON(size != PAGE_SIZE);
-	kvm_iommu_reclaim_page(addr);
+	while (size) {
+		kvm_iommu_reclaim_page(addr);
+		addr += PAGE_SIZE;
+		size -= PAGE_SIZE;
+	}
 }
 
 static void tegra_domain_free_unlinked(void *addr, s8 level)
@@ -293,6 +309,18 @@ static u64 tegra_vtcr(unsigned int address_bits)
 
 	vtcr &= ~PKVM_SMMU_VTCR_PS;
 	vtcr |= FIELD_PREP(PKVM_SMMU_VTCR_PS, tegra_ps(address_bits));
+	/*
+	 * Arm SMMUv2 requires a concatenated level-1 root for a 40- or
+	 * 42-bit output address size with 4K tables. KVM otherwise selects a
+	 * level-0 root from the input size alone. Select level 1 here; KVM's
+	 * page-table allocator will then provide the required two or eight
+	 * contiguous root pages.
+	 */
+	if ((address_bits == 40 || address_bits == 42) &&
+	    FIELD_GET(PKVM_SMMU_VTCR_SL0, vtcr) == 2) {
+		vtcr &= ~PKVM_SMMU_VTCR_SL0;
+		vtcr |= FIELD_PREP(PKVM_SMMU_VTCR_SL0, 1);
+	}
 	return vtcr;
 }
 
@@ -348,7 +376,8 @@ static void tegra_sync_pgtable(struct pkvm_tegra_hyp_domain *domain,
 	WARN_ON(kvm_pgtable_walk(&domain->pgt, start, size, &walker));
 	/* The root table has no parent entry for the post-order walker. */
 	dcache_clean_inval_poc((unsigned long)domain->pgt.pgd,
-			       (unsigned long)domain->pgt.pgd + PAGE_SIZE);
+			       (unsigned long)domain->pgt.pgd +
+			       kvm_pgtable_stage2_pgd_size(domain->mmu.vtcr));
 	dsb(sy);
 }
 

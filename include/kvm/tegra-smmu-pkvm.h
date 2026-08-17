@@ -94,6 +94,7 @@ struct pkvm_tegra_smmu_device {
 #define PKVM_SMMU_CB_TCR		0x030
 #define PKVM_SMMU_VTCR_RES1		BIT(31)
 #define PKVM_SMMU_VTCR_PS		GENMASK(18, 16)
+#define PKVM_SMMU_VTCR_SL0		GENMASK(7, 6)
 #define PKVM_SMMU_CB_FSR		0x058
 #define PKVM_SMMU_CB_TLBIIPAS2		0x630
 #define PKVM_SMMU_CB_TLBIIPAS2L	0x638
