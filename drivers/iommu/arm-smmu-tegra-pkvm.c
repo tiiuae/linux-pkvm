@@ -314,7 +314,7 @@ err_free:
 
 static int pkvm_tegra_default_domain(struct device *dev)
 {
-	return IOMMU_DOMAIN_IDENTITY;
+	return 0;
 }
 
 static const struct iommu_ops pkvm_tegra_iommu_ops = {
