@@ -28,6 +28,17 @@
 #define PKVM_TEGRA_TLB_SPINS		1000000
 #define PKVM_TEGRA_MGBE_RESET_SPINS	2000000
 
+/* Temporary boot diagnostics for the nvidia-jetson-orin-agx-pkvm-debug target. */
+#define PKVM_TEGRA_DIAG_INIT_PARAMS_DONATE	(-1001)
+#define PKVM_TEGRA_DIAG_INIT_PARAMS		(-1002)
+#define PKVM_TEGRA_DIAG_INIT_MMIO_ALIGN		(-1100)
+#define PKVM_TEGRA_DIAG_INIT_MMIO_DONATE	(-1200)
+#define PKVM_TEGRA_DIAG_INIT_RESET		(-1300)
+#define PKVM_TEGRA_DIAG_INIT_PGTABLE		(-1400)
+#define PKVM_TEGRA_DIAG_INIT_PVIOMMU		(-1500)
+#define PKVM_TEGRA_DIAG_SNAPSHOT_MAP		(-200000000)
+#define PKVM_TEGRA_DIAG_SNAPSHOT_TLB		(-400000000)
+
 #define PKVM_TEGRA_MGBE0_HV_BASE	0x06800000
 #define PKVM_TEGRA_MGBE0_MAC_BASE	0x06810000
 
@@ -508,10 +519,17 @@ static int tegra_host_stage2_idmap(phys_addr_t start, phys_addr_t end, int prot)
 					     start, pgt_prot, (void *)1, 0);
 	else
 		ret = kvm_pgtable_stage2_unmap(&domain->pgt, start, end - start);
+	if (ret && tegra_snapshotting)
+		ret = PKVM_TEGRA_DIAG_SNAPSHOT_MAP - (int)(start >> 21);
 	if (!ret) {
 		tegra_sync_pgtable(domain, start, end - start);
-		for (i = 0; i < pkvm_tegra_smmu_count; i++)
+		for (i = 0; i < pkvm_tegra_smmu_count; i++) {
 			ret = tegra_smmu_flush_vmid(&tegra_smmus[i], 0);
+			if (ret && tegra_snapshotting) {
+				ret = PKVM_TEGRA_DIAG_SNAPSHOT_TLB - (int)i;
+				break;
+			}
+		}
 	}
 	hyp_spin_unlock(&domain->lock);
 	return ret;
@@ -794,6 +812,16 @@ static int tegra_iommu_token(pkvm_handle_t iommu_id, u64 *out_token)
 	return 0;
 }
 
+static void tegra_snapshot_start(void)
+{
+	tegra_snapshotting = true;
+}
+
+static void tegra_snapshot_end(void)
+{
+	tegra_snapshotting = false;
+}
+
 static int tegra_init(pkvm_handle_t driver_id)
 {
 	struct pkvm_tegra_smmu_device *params;
@@ -812,7 +840,7 @@ static int tegra_init(pkvm_handle_t driver_id)
 	params_pfn = hyp_virt_to_phys(pkvm_tegra_smmu_devices) >> PAGE_SHIFT;
 	ret = __pkvm_host_donate_hyp(params_pfn, params_size >> PAGE_SHIFT);
 	if (ret)
-		return ret;
+		return PKVM_TEGRA_DIAG_INIT_PARAMS_DONATE;
 
 	for (i = 0; i < pkvm_tegra_smmu_count; i++) {
 		struct pkvm_tegra_hyp_smmu *smmu = &tegra_smmus[i];
@@ -826,7 +854,7 @@ static int tegra_init(pkvm_handle_t driver_id)
 		    params->num_s2_context_banks > params->num_context_banks ||
 		    params->num_mapping_groups > PKVM_TEGRA_SMMU_MAX_SMRS ||
 		    tegra_ps(min(params->ias, params->oas)) < 0)
-			return -ENODEV;
+			return PKVM_TEGRA_DIAG_INIT_PARAMS - (int)i;
 		smmu->params = params;
 		tegra_noncoherent_walk |= !params->coherent_walk;
 		hyp_spin_lock_init(&smmu->lock);
@@ -841,16 +869,18 @@ static int tegra_init(pkvm_handle_t driver_id)
 
 			if (!PAGE_ALIGNED(params->mmio_addr[instance]) ||
 			    !PAGE_ALIGNED(params->mmio_size))
-				return -EINVAL;
+				return PKVM_TEGRA_DIAG_INIT_MMIO_ALIGN -
+				       (int)(i * PKVM_TEGRA_SMMU_MAX_INSTANCES + instance);
 			ret = pkvm_host_donate_hyp_mmio(pfn, pages, PAGE_HYP_DEVICE);
 			if (ret)
-				return ret;
+				return PKVM_TEGRA_DIAG_INIT_MMIO_DONATE -
+				       (int)(i * PKVM_TEGRA_SMMU_MAX_INSTANCES + instance);
 			smmu->base[instance] =
 				hyp_phys_to_virt(params->mmio_addr[instance]);
 		}
 		ret = tegra_reset_smmu(smmu);
 		if (ret)
-			return ret;
+			return PKVM_TEGRA_DIAG_INIT_RESET - (int)i;
 	}
 
 	tegra_identity_mm_ops = (struct kvm_pgtable_mm_ops) {
@@ -883,19 +913,19 @@ static int tegra_init(pkvm_handle_t driver_id)
 				 &tegra_identity_mm_ops,
 				 address_bits, true);
 	if (ret)
-		return ret;
+		return PKVM_TEGRA_DIAG_INIT_PGTABLE;
 	for (i = 0; i < pkvm_tegra_smmu_count; i++)
 		tegra_program_context(&tegra_smmus[i], &tegra_identity_domain);
 
-	tegra_snapshotting = true;
 	ret = kvm_iommu_register_pviommu_drv(driver_id);
-	tegra_snapshotting = false;
-	return ret;
+	return ret ? PKVM_TEGRA_DIAG_INIT_PVIOMMU : 0;
 }
 
 struct kvm_iommu_ops pkvm_tegra_smmu_ops = {
 	.init = tegra_init,
 	.init_devices = tegra_init_devices,
+	.host_stage2_snapshot_start = tegra_snapshot_start,
+	.host_stage2_snapshot_end = tegra_snapshot_end,
 	.host_stage2_idmap = tegra_host_stage2_idmap,
 	.alloc_domain = tegra_alloc_domain,
 	.free_domain = tegra_free_domain,

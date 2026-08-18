@@ -28,6 +28,8 @@ int kvm_iommu_id_to_token(pkvm_handle_t smmu_id, u64 *out_token);
 struct kvm_iommu_ops {
 	int (*init)(pkvm_handle_t drv_id);
 	void (*init_devices)(void);
+	void (*host_stage2_snapshot_start)(void);
+	void (*host_stage2_snapshot_end)(void);
 	int (*host_stage2_idmap)(phys_addr_t start, phys_addr_t end, int prot);
 	int (*attach_dev)(pkvm_handle_t iommu, struct kvm_hyp_iommu_domain *domain,
 			  pkvm_handle_t dev, u32 pasid, u32 pasid_bits, unsigned long flags);

@@ -161,9 +161,13 @@ static int kvm_iommu_snapshot_host_stage2(struct kvm_iommu_ops *ops)
 	};
 	struct kvm_pgtable *pgt = &host_mmu.pgt;
 
+	if (ops->host_stage2_snapshot_start)
+		ops->host_stage2_snapshot_start();
 	hyp_spin_lock(&host_mmu.lock);
 	ret = kvm_pgtable_walk(pgt, 0, BIT(pgt->ia_bits), &walker);
 	hyp_spin_unlock(&host_mmu.lock);
+	if (ops->host_stage2_snapshot_end)
+		ops->host_stage2_snapshot_end();
 
 	return ret;
 }
