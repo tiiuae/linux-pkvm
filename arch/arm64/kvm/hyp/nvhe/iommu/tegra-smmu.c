@@ -1047,9 +1047,18 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 			return -ENOENT;
 		cb = tegra_smmu_cb(smmu, 1, domain->cb);
 		*value0 = readl_relaxed(tegra_smmu_page(smmu, 1, 0) +
-				       PKVM_SMMU_GR0_SCR0);
+					       PKVM_SMMU_GR0_SCR0);
 		*value1 = readl_relaxed(cb + PKVM_SMMU_CB_SCTLR);
 		return 0;
+	case 10:
+		return tegra_debug_leaf(0x0000000080000000ULL,
+					value0, value1);
+	case 11:
+		return tegra_debug_leaf(0x0000000100000000ULL,
+					value0, value1);
+	case 12:
+		return tegra_debug_leaf(0x0000000370000000ULL,
+					value0, value1);
 	default:
 		return -EINVAL;
 	}

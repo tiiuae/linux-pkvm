@@ -138,17 +138,36 @@ static int __snapshot_host_stage2(const struct kvm_pgtable_visit_ctx *ctx,
 	u64 end = start + kvm_granule_size(level);
 	int prot = IOMMU_READ | IOMMU_WRITE;
 	struct kvm_iommu_ops *ops = (struct kvm_iommu_ops *)ctx->arg;
+	unsigned int i;
+	int ret;
 
 	/* Keep unmapped. */
 	if (pte && !kvm_pte_valid(pte))
 		return 0;
 
-	if (kvm_pte_valid(pte))
+	if (kvm_pte_valid(pte)) {
 		prot = pkvm_to_iommu_prot(kvm_pgtable_stage2_pte_prot(pte), start);
-	else if (!addr_is_memory(start))
-		prot |= IOMMU_MMIO | IOMMU_NOEXEC;
+		return ops->host_stage2_idmap(start, end, prot);
+	}
 
-	return ops->host_stage2_idmap(start, end, prot);
+	/*
+	 * Empty leaves can span both MMIO holes and RAM.  Classifying the whole
+	 * leaf from its first address can therefore hide RAM from an identity
+	 * IOMMU domain.  Mirror only the portions backed by host memory; MMIO is
+	 * mapped lazily by the host stage-2 fault path when it is actually used.
+	 */
+	for (i = 0; i < hyp_memblock_nr; i++) {
+		u64 mem_start = max(start, hyp_memory[i].base);
+		u64 mem_end = min(end, hyp_memory[i].base + hyp_memory[i].size);
+
+		if (mem_start >= mem_end)
+			continue;
+		ret = ops->host_stage2_idmap(mem_start, mem_end, prot);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
 }
 
 static int kvm_iommu_snapshot_host_stage2(struct kvm_iommu_ops *ops)
