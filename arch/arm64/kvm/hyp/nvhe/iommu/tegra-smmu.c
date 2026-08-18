@@ -363,7 +363,32 @@ static u32 tegra_domain_vtcr(struct pkvm_tegra_hyp_domain *domain)
 static int tegra_sync_pte(const struct kvm_pgtable_visit_ctx *ctx,
 			  enum kvm_pgtable_walk_flags visit)
 {
+	kvm_pte_t pte;
 	void *child;
+
+	if (visit == KVM_PGTABLE_WALK_LEAF) {
+		pte = READ_ONCE(*ctx->ptep);
+		if (!kvm_pte_valid(pte))
+			return 0;
+
+		/*
+		 * KVM's CPU stage-2 helper uses the FEAT_XNX encoding for XN,
+		 * while an Arm SMMUv2 LPAE stage-2 leaf uses both XN bits.
+		 * io-pgtable-arm also uses outer-shareable attributes for device
+		 * and normal non-cacheable mappings, rather than KVM's fixed
+		 * inner-shareable attribute.  Normalize the freshly-created leaf
+		 * before publishing it to the non-coherent SMMU table walker.
+		 */
+		pte &= ~KVM_PTE_LEAF_ATTR_HI_S2_XN;
+		pte |= FIELD_PREP(KVM_PTE_LEAF_ATTR_HI_S2_XN, 3);
+		if ((pte & KVM_PTE_LEAF_ATTR_LO_S2_MEMATTR) !=
+		    PAGE_S2_MEMATTR(NORMAL)) {
+			pte &= ~KVM_PTE_LEAF_ATTR_LO_S2_SH;
+			pte |= FIELD_PREP(KVM_PTE_LEAF_ATTR_LO_S2_SH, 2);
+		}
+		WRITE_ONCE(*ctx->ptep, pte);
+		return 0;
+	}
 
 	if (visit != KVM_PGTABLE_WALK_TABLE_POST)
 		return 0;
