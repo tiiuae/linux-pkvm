@@ -179,8 +179,12 @@ static int pkvm_tegra_attach(struct iommu_domain *domain, struct device *dev,
 			ret = kvm_iommu_set_identity(pkvm_tegra_hyp_driver,
 						     master->smmu->id,
 						     fwspec->ids[i], true, 0);
-			if (ret)
+			if (ret) {
+				dev_err(dev,
+					"failed to attach identity domain to SMMU %llu SID %#x: %d\n",
+					master->smmu->id, fwspec->ids[i], ret);
 				goto err_detach;
+			}
 		}
 		return 0;
 	}
@@ -431,11 +435,17 @@ static int pkvm_tegra_register_iommu(struct device *dev, void *data)
 
 	ret = iommu_device_sysfs_add(&smmu->iommu, dev, NULL,
 				     "pkvm-tegra-smmu.%u", smmu->id);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "failed to add pKVM IOMMU %llu to sysfs: %d\n",
+			smmu->id, ret);
 		return ret;
+	}
 	ret = iommu_device_register(&smmu->iommu, &pkvm_tegra_iommu_ops, dev);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "failed to register pKVM IOMMU %llu: %d\n",
+			smmu->id, ret);
 		iommu_device_sysfs_remove(&smmu->iommu);
+	}
 	return ret;
 }
 
