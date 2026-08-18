@@ -100,6 +100,8 @@ struct pkvm_tegra_smmu_device {
 #define PKVM_SMMU_SCTLR_M		BIT(0)
 #define PKVM_SMMU_CB_TTBR0		0x020
 #define PKVM_SMMU_CB_TCR		0x030
+#define PKVM_SMMU_CB_PAR		0x050
+#define PKVM_SMMU_CB_PAR_F		BIT(0)
 #define PKVM_SMMU_VTCR_RES1		BIT(31)
 #define PKVM_SMMU_VTCR_PS		GENMASK(18, 16)
 #define PKVM_SMMU_VTCR_SH0		GENMASK(13, 12)
@@ -110,6 +112,9 @@ struct pkvm_tegra_smmu_device {
 #define PKVM_SMMU_CB_FSR		0x058
 #define PKVM_SMMU_CB_FAR		0x060
 #define PKVM_SMMU_CB_FSYNR0		0x068
+#define PKVM_SMMU_CB_ATS1PR		0x800
+#define PKVM_SMMU_CB_ATSR		0x8f0
+#define PKVM_SMMU_CB_ATSR_ACTIVE	BIT(0)
 #define PKVM_SMMU_CB_TLBIIPAS2		0x630
 #define PKVM_SMMU_CB_TLBIIPAS2L	0x638
 #define PKVM_SMMU_CB_TLBSYNC		0x7f0

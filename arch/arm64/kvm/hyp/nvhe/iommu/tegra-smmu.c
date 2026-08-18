@@ -27,6 +27,7 @@
 
 #define PKVM_TEGRA_TLB_SPINS		1000000
 #define PKVM_TEGRA_MGBE_RESET_SPINS	2000000
+#define PKVM_TEGRA_ATS_SPINS		100000
 
 /* Temporary boot diagnostics for the nvidia-jetson-orin-agx-pkvm-debug target. */
 #define PKVM_TEGRA_DIAG_INIT_PARAMS_DONATE	(-1001)
@@ -717,10 +718,12 @@ static int tegra_map_pages(struct kvm_hyp_iommu_domain *core_domain,
 		pgt_prot |= KVM_PGTABLE_PROT_R;
 	if (prot & IOMMU_WRITE)
 		pgt_prot |= KVM_PGTABLE_PROT_W;
-	if (prot & IOMMU_MMIO)
-		pgt_prot |= KVM_PGTABLE_PROT_DEVICE;
 	if (!pgt_prot)
 		return -EINVAL;
+	if (prot & IOMMU_MMIO)
+		pgt_prot |= KVM_PGTABLE_PROT_DEVICE;
+	else if (!(prot & IOMMU_CACHE))
+		pgt_prot |= KVM_PGTABLE_PROT_NORMAL_NC;
 	domain->debug_iova = iova;
 
 	ret = iommu_pkvm_use_dma(paddr, size);
@@ -891,6 +894,8 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 		u32 op = FIELD_GET(PKVM_TEGRA_DEBUG_DOMAIN_OP, selector);
 		kvm_pte_t pte;
 		s8 level;
+		unsigned int instance;
+		unsigned int spin;
 
 		if (domain_id >= KVM_IOMMU_MAX_HOST_DOMAINS)
 			return -EINVAL;
@@ -933,6 +938,24 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 				  readl_relaxed(cb + PKVM_SMMU_CB_FSYNR0);
 			*value1 = readq_relaxed(cb + PKVM_SMMU_CB_FAR);
 			return 0;
+		case 5:
+		case 6:
+			instance = op - 5;
+			if (instance >= smmu->params->num_instances)
+				return -ENOENT;
+			cb = tegra_smmu_cb(smmu, instance, domain->cb);
+			writeq_relaxed(domain->debug_iova & PAGE_MASK,
+				       cb + PKVM_SMMU_CB_ATS1PR);
+			for (spin = 0; spin < PKVM_TEGRA_ATS_SPINS; spin++) {
+				if (!(readl_relaxed(cb + PKVM_SMMU_CB_ATSR) &
+				      PKVM_SMMU_CB_ATSR_ACTIVE)) {
+					*value0 = readq_relaxed(cb + PKVM_SMMU_CB_PAR);
+					*value1 = domain->debug_iova;
+					return 0;
+				}
+				cpu_relax();
+			}
+			return -ETIMEDOUT;
 		default:
 			return -EINVAL;
 		}

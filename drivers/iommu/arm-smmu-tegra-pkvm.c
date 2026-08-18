@@ -248,14 +248,21 @@ static int pkvm_tegra_map_pages(struct iommu_domain *domain,
 				gfp_t gfp, size_t *mapped)
 {
 	struct pkvm_tegra_domain *tegra_domain = to_pkvm_tegra_domain(domain);
-	u64 value[5][2] = { };
-	int debug_ret[5];
+	u64 value[7][2] = { };
+	int debug_ret[7];
+	bool debug;
 	int ret;
 	int op;
 
+	debug = tegra_domain->debug_maps++ < 32;
+	if (debug)
+		pr_err("tegra-pkvm-map-begin: smmu=%llu domain=%llu iova=%#lx pa=%pa pgsize=%zu pgcount=%zu prot=%#x\n",
+		       (unsigned long long)tegra_domain->smmu->id,
+		       (unsigned long long)tegra_domain->id, iova, &paddr,
+		       pgsize, pgcount, prot);
 	ret = kvm_iommu_map_pages(tegra_domain->id, iova, paddr, pgsize,
 				  pgcount, prot, gfp, mapped);
-	if (tegra_domain->debug_maps++ >= 8)
+	if (!debug)
 		return ret;
 
 	for (op = 0; op < ARRAY_SIZE(debug_ret); op++)
