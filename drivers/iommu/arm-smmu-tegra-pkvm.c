@@ -30,8 +30,18 @@ struct pkvm_tegra_host_smmu {
 	struct iommu_device iommu;
 	struct device *dev;
 	struct tegra_mc *mc;
+	struct mutex group_lock;
+	struct list_head groups;
 	pkvm_handle_t id;
 	u32 address_bits;
+};
+
+struct pkvm_tegra_group {
+	struct list_head list;
+	struct pkvm_tegra_host_smmu *smmu;
+	struct iommu_group *group;
+	u32 *sids;
+	unsigned int num_sids;
 };
 
 struct pkvm_tegra_master {
@@ -312,6 +322,102 @@ err_free:
 	return ERR_PTR(ret);
 }
 
+static bool pkvm_tegra_group_has_sid(const struct pkvm_tegra_group *group,
+				     u32 sid)
+{
+	unsigned int i;
+
+	for (i = 0; i < group->num_sids; i++)
+		if (group->sids[i] == sid)
+			return true;
+	return false;
+}
+
+static void pkvm_tegra_group_release(void *data)
+{
+	struct pkvm_tegra_group *group = data;
+
+	mutex_lock(&group->smmu->group_lock);
+	list_del(&group->list);
+	mutex_unlock(&group->smmu->group_lock);
+	kfree(group->sids);
+	kfree(group);
+}
+
+static struct iommu_group *pkvm_tegra_device_group(struct device *dev)
+{
+	struct pkvm_tegra_master *master = dev_iommu_priv_get(dev);
+	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
+	struct pkvm_tegra_group *group, *match = NULL;
+	u32 *sids;
+	unsigned int i, num_sids;
+
+	if (!master || !fwspec || !fwspec->num_ids)
+		return ERR_PTR(-ENODEV);
+
+	mutex_lock(&master->smmu->group_lock);
+	list_for_each_entry(group, &master->smmu->groups, list) {
+		for (i = 0; i < fwspec->num_ids; i++) {
+			if (!pkvm_tegra_group_has_sid(group, fwspec->ids[i]))
+				continue;
+			if (match && match != group) {
+				mutex_unlock(&master->smmu->group_lock);
+				return ERR_PTR(-EINVAL);
+			}
+			match = group;
+		}
+	}
+
+	if (match) {
+		num_sids = match->num_sids;
+		for (i = 0; i < fwspec->num_ids; i++)
+			if (!pkvm_tegra_group_has_sid(match, fwspec->ids[i]))
+				num_sids++;
+		sids = krealloc_array(match->sids, num_sids, sizeof(*sids),
+				      GFP_KERNEL);
+		if (!sids) {
+			mutex_unlock(&master->smmu->group_lock);
+			return ERR_PTR(-ENOMEM);
+		}
+		match->sids = sids;
+		for (i = 0; i < fwspec->num_ids; i++)
+			if (!pkvm_tegra_group_has_sid(match, fwspec->ids[i]))
+				match->sids[match->num_sids++] = fwspec->ids[i];
+		group = match;
+		mutex_unlock(&master->smmu->group_lock);
+		return iommu_group_ref_get(group->group);
+	}
+
+	group = kzalloc_obj(*group, GFP_KERNEL);
+	if (!group) {
+		mutex_unlock(&master->smmu->group_lock);
+		return ERR_PTR(-ENOMEM);
+	}
+	group->sids = kmemdup_array(fwspec->ids, fwspec->num_ids,
+				     sizeof(*group->sids), GFP_KERNEL);
+	if (!group->sids) {
+		kfree(group);
+		mutex_unlock(&master->smmu->group_lock);
+		return ERR_PTR(-ENOMEM);
+	}
+	group->group = generic_device_group(dev);
+	if (IS_ERR(group->group)) {
+		struct iommu_group *ret = group->group;
+
+		kfree(group->sids);
+		kfree(group);
+		mutex_unlock(&master->smmu->group_lock);
+		return ret;
+	}
+	group->smmu = master->smmu;
+	group->num_sids = fwspec->num_ids;
+	iommu_group_set_iommudata(group->group, group,
+				  pkvm_tegra_group_release);
+	list_add_tail(&group->list, &master->smmu->groups);
+	mutex_unlock(&master->smmu->group_lock);
+	return group->group;
+}
+
 static int pkvm_tegra_default_domain(struct device *dev)
 {
 	return 0;
@@ -324,7 +430,7 @@ static const struct iommu_ops pkvm_tegra_iommu_ops = {
 	.probe_device = pkvm_tegra_probe_device,
 	.release_device = pkvm_tegra_release_device,
 	.probe_finalize = pkvm_tegra_probe_finalize,
-	.device_group = generic_device_group,
+	.device_group = pkvm_tegra_device_group,
 	.of_xlate = pkvm_tegra_of_xlate,
 	.def_domain_type = pkvm_tegra_default_domain,
 	.owner = THIS_MODULE,
@@ -417,6 +523,8 @@ static int pkvm_tegra_probe(struct platform_device *pdev)
 	host_smmu->mc = devm_tegra_memory_controller_get(dev);
 	if (IS_ERR(host_smmu->mc))
 		return PTR_ERR(host_smmu->mc);
+	mutex_init(&host_smmu->group_lock);
+	INIT_LIST_HEAD(&host_smmu->groups);
 	platform_set_drvdata(pdev, host_smmu);
 	pkvm_tegra_smmu_current++;
 	return 0;
