@@ -320,18 +320,6 @@ static u64 tegra_vtcr(unsigned int address_bits, bool coherent_walk)
 		vtcr |= FIELD_PREP(PKVM_SMMU_VTCR_SH0,
 				   PKVM_SMMU_VTCR_SH0_OS);
 	}
-	/*
-	 * Arm SMMUv2 requires a concatenated level-1 root for a 40- or
-	 * 42-bit output address size with 4K tables. KVM otherwise selects a
-	 * level-0 root from the input size alone. Select level 1 here; KVM's
-	 * page-table allocator will then provide the required two or eight
-	 * contiguous root pages.
-	 */
-	if ((address_bits == 40 || address_bits == 42) &&
-	    FIELD_GET(PKVM_SMMU_VTCR_SL0, vtcr) == 2) {
-		vtcr &= ~PKVM_SMMU_VTCR_SL0;
-		vtcr |= FIELD_PREP(PKVM_SMMU_VTCR_SL0, 1);
-	}
 	return vtcr;
 }
 
@@ -357,7 +345,22 @@ static int tegra_init_pgtable(struct pkvm_tegra_hyp_domain *domain,
 
 static u32 tegra_domain_vtcr(struct pkvm_tegra_hyp_domain *domain)
 {
-	return PKVM_SMMU_VTCR_RES1 | (domain->mmu.vtcr & GENMASK(18, 0));
+	u32 vtcr = PKVM_SMMU_VTCR_RES1 |
+		   (domain->mmu.vtcr & GENMASK(18, 0));
+	u32 sl0;
+
+	/*
+	 * Derive SL0 from the page-table start level instead of relying on the
+	 * CPU VTCR_EL2 encoding.  The SMMUv2 4K-granule encoding applies an
+	 * additional level offset before taking the one's complement, matching
+	 * arm_64_lpae_alloc_pgtable_s2().
+	 */
+	sl0 = ~(domain->pgt.start_level + 1) &
+	      FIELD_MAX(PKVM_SMMU_VTCR_SL0);
+	vtcr &= ~PKVM_SMMU_VTCR_SL0;
+	vtcr |= FIELD_PREP(PKVM_SMMU_VTCR_SL0, sl0);
+
+	return vtcr;
 }
 
 static int tegra_sync_pte(const struct kvm_pgtable_visit_ctx *ctx,
@@ -440,7 +443,8 @@ static void tegra_program_context(struct pkvm_tegra_hyp_smmu *smmu,
 	tegra_smmu_cb_write(smmu, domain->cb, PKVM_SMMU_CB_FSR, ~0U);
 	dsb(ishst);
 	tegra_smmu_cb_write(smmu, domain->cb, PKVM_SMMU_CB_SCTLR,
-			    PKVM_SMMU_SCTLR_AFE | PKVM_SMMU_SCTLR_TRE |
+			    PKVM_SMMU_SCTLR_CFRE | PKVM_SMMU_SCTLR_AFE |
+			    PKVM_SMMU_SCTLR_TRE |
 			    PKVM_SMMU_SCTLR_M);
 }
 

@@ -17,6 +17,7 @@
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/workqueue.h>
 
 #include <soc/tegra/mc.h>
 
@@ -54,6 +55,8 @@ struct pkvm_tegra_domain {
 	struct pkvm_tegra_host_smmu *smmu;
 	pkvm_handle_t id;
 	unsigned int debug_maps;
+	struct delayed_work debug_work;
+	bool debug_work_scheduled;
 };
 
 #define to_pkvm_tegra_domain(d) \
@@ -65,6 +68,27 @@ static struct pkvm_tegra_smmu_device *pkvm_tegra_smmus;
 static size_t pkvm_tegra_smmu_count;
 static size_t pkvm_tegra_smmu_current;
 static pkvm_handle_t pkvm_tegra_hyp_driver;
+
+static void pkvm_tegra_debug_workfn(struct work_struct *work)
+{
+	struct pkvm_tegra_domain *domain = container_of(
+		to_delayed_work(work), struct pkvm_tegra_domain, debug_work);
+	u64 value[7][2] = { };
+	int ret[7];
+	int op;
+
+	for (op = 0; op < ARRAY_SIZE(ret); op++)
+		ret[op] = kvm_iommu_debug_read(
+			pkvm_tegra_hyp_driver, domain->smmu->id,
+			PKVM_TEGRA_DEBUG_DOMAIN_SEL(domain->id, op),
+			&value[op][0], &value[op][1]);
+	for (op = 0; op < ARRAY_SIZE(ret); op++)
+		pr_err("tegra-pkvm-post-dma: smmu=%llu domain=%llu op=%d ret=%d value0=%#llx value1=%#llx\n",
+		       (unsigned long long)domain->smmu->id,
+		       (unsigned long long)domain->id, op, ret[op],
+		       (unsigned long long)value[op][0],
+		       (unsigned long long)value[op][1]);
+}
 
 static unsigned int pkvm_tegra_id_size(u32 value)
 {
@@ -262,6 +286,11 @@ static int pkvm_tegra_map_pages(struct iommu_domain *domain,
 		       pgsize, pgcount, prot);
 	ret = kvm_iommu_map_pages(tegra_domain->id, iova, paddr, pgsize,
 				  pgcount, prot, gfp, mapped);
+	if (*mapped && !tegra_domain->debug_work_scheduled) {
+		tegra_domain->debug_work_scheduled = true;
+		schedule_delayed_work(&tegra_domain->debug_work,
+				      msecs_to_jiffies(1000));
+	}
 	if (!debug)
 		return ret;
 
@@ -302,6 +331,7 @@ static void pkvm_tegra_domain_free(struct iommu_domain *domain)
 {
 	struct pkvm_tegra_domain *tegra_domain = to_pkvm_tegra_domain(domain);
 
+	cancel_delayed_work_sync(&tegra_domain->debug_work);
 	WARN_ON(kvm_iommu_free_domain(tegra_domain->id));
 	ida_free(&pkvm_tegra_domain_ids, tegra_domain->id);
 	kfree(tegra_domain);
@@ -333,6 +363,7 @@ static struct iommu_domain *pkvm_tegra_domain_alloc_paging(struct device *dev)
 		goto err_free;
 	domain->id = ret;
 	domain->smmu = master->smmu;
+	INIT_DELAYED_WORK(&domain->debug_work, pkvm_tegra_debug_workfn);
 	domain->domain.ops = &pkvm_tegra_paging_ops;
 	domain->domain.pgsize_bitmap = PAGE_SIZE;
 	domain->domain.geometry.aperture_end =

@@ -95,6 +95,7 @@ struct pkvm_tegra_smmu_device {
 
 /* SMMUv2 context bank register space. */
 #define PKVM_SMMU_CB_SCTLR		0x000
+#define PKVM_SMMU_SCTLR_CFRE		BIT(5)
 #define PKVM_SMMU_SCTLR_AFE		BIT(2)
 #define PKVM_SMMU_SCTLR_TRE		BIT(1)
 #define PKVM_SMMU_SCTLR_M		BIT(0)
