@@ -484,9 +484,20 @@ static int pkvm_tegra_default_domain(struct device *dev)
 	return IOMMU_DOMAIN_IDENTITY;
 }
 
+static bool pkvm_tegra_capable(struct device *dev, enum iommu_cap cap)
+{
+	switch (cap) {
+	case IOMMU_CAP_CACHE_COHERENCY:
+		return device_get_dma_attr(dev) == DEV_DMA_COHERENT;
+	default:
+		return false;
+	}
+}
+
 static const struct iommu_ops pkvm_tegra_iommu_ops = {
 	.identity_domain = &pkvm_tegra_identity_domain,
 	.blocked_domain = &pkvm_tegra_blocked_domain,
+	.capable = pkvm_tegra_capable,
 	.domain_alloc_paging = pkvm_tegra_domain_alloc_paging,
 	.probe_device = pkvm_tegra_probe_device,
 	.release_device = pkvm_tegra_release_device,
