@@ -547,10 +547,14 @@ static int tegra_reset_smmu(struct pkvm_tegra_hyp_smmu *smmu)
 	scr0 &= ~(PKVM_SMMU_SCR0_CLIENTPD);
 	scr0 &= ~(PKVM_SMMU_SCR0_BSU | PKVM_SMMU_SCR0_FB |
 		   PKVM_SMMU_SCR0_GCFGFIE | PKVM_SMMU_SCR0_GFIE |
-		   PKVM_SMMU_SCR0_VMID16EN);
+		   PKVM_SMMU_SCR0_USFCFG | PKVM_SMMU_SCR0_VMID16EN);
+	/*
+	 * Preserve arm-smmu.disable_bypass=0 semantics during host DMA
+	 * bring-up. Matched streams still use their translated context, while
+	 * masters not yet represented by an SMR retain the firmware bypass path.
+	 */
 	scr0 |= PKVM_SMMU_SCR0_PTM | PKVM_SMMU_SCR0_VMIDPNE |
-		 PKVM_SMMU_SCR0_USFCFG | PKVM_SMMU_SCR0_GCFGFRE |
-		 PKVM_SMMU_SCR0_GFRE;
+		 PKVM_SMMU_SCR0_GCFGFRE | PKVM_SMMU_SCR0_GFRE;
 	if (smmu->params->vmid16)
 		scr0 |= PKVM_SMMU_SCR0_VMID16EN;
 	tegra_smmu_write(smmu, 0, PKVM_SMMU_GR0_SCR0, scr0);
