@@ -390,10 +390,9 @@ static int pkvm_tegra_probe(struct platform_device *pdev)
 	hyp_smmu->coherent_walk = of_dma_is_coherent(dev->of_node) ||
 				  !!(id0 & PKVM_SMMU_ID0_CTTW);
 	hyp_smmu->vmid16 = !!(id2 & PKVM_SMMU_ID2_VMID16);
-	if (hyp_smmu->pgshift != PAGE_SHIFT ||
+	if ((hyp_smmu->pgshift != 12 && hyp_smmu->pgshift != 16) ||
 	    hyp_smmu->mmio_size <
 		((u64)2 * hyp_smmu->numpage << hyp_smmu->pgshift) ||
-	    hyp_smmu->num_s2_context_banks < 2 ||
 	    hyp_smmu->num_s2_context_banks > hyp_smmu->num_context_banks ||
 	    hyp_smmu->num_context_banks > PKVM_TEGRA_SMMU_MAX_CONTEXT_BANKS ||
 	    hyp_smmu->num_mapping_groups > PKVM_TEGRA_SMMU_MAX_SMRS ||

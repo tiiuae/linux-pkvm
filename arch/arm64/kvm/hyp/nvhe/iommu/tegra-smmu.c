@@ -8,6 +8,7 @@
 #include <asm/kvm_hyp.h>
 #include <asm/kvm_pgtable.h>
 #include <asm/kvm_pkvm.h>
+#include <asm/cacheflush.h>
 
 #include <linux/bitfield.h>
 #include <linux/bitmap.h>
@@ -61,6 +62,7 @@ static struct pkvm_tegra_hyp_smmu
 static struct pkvm_tegra_hyp_domain tegra_identity_domain;
 static struct kvm_pgtable_mm_ops tegra_identity_mm_ops;
 static struct kvm_pgtable_mm_ops tegra_domain_mm_ops;
+static bool tegra_noncoherent_walk;
 
 struct pkvm_tegra_mgbe {
 	phys_addr_t hv_base;
@@ -300,6 +302,29 @@ static u32 tegra_domain_vtcr(struct pkvm_tegra_hyp_domain *domain)
 	return PKVM_SMMU_VTCR_RES1 | (domain->mmu.vtcr & GENMASK(18, 0));
 }
 
+static int tegra_sync_pte(const struct kvm_pgtable_visit_ctx *ctx,
+			  enum kvm_pgtable_walk_flags visit)
+{
+	dcache_clean_inval_poc((unsigned long)ctx->ptep,
+			       (unsigned long)(ctx->ptep + 1));
+	return 0;
+}
+
+static void tegra_sync_pgtable(struct pkvm_tegra_hyp_domain *domain,
+			       u64 start, u64 size)
+{
+	struct kvm_pgtable_walker walker = {
+		.cb = tegra_sync_pte,
+		/* Publish child entries before their parent table entries. */
+		.flags = KVM_PGTABLE_WALK_LEAF | KVM_PGTABLE_WALK_TABLE_POST,
+	};
+
+	if (!tegra_noncoherent_walk)
+		return;
+	WARN_ON(kvm_pgtable_walk(&domain->pgt, start, size, &walker));
+	dsb(sy);
+}
+
 static void tegra_program_context(struct pkvm_tegra_hyp_smmu *smmu,
 				  struct pkvm_tegra_hyp_domain *domain)
 {
@@ -307,6 +332,7 @@ static void tegra_program_context(struct pkvm_tegra_hyp_smmu *smmu,
 	u32 cbar = FIELD_PREP(PKVM_SMMU_CBAR_TYPE,
 			      PKVM_SMMU_CBAR_TYPE_S2);
 
+	tegra_sync_pgtable(domain, 0, BIT(domain->pgt.ia_bits));
 	tegra_smmu_cb_write(smmu, domain->cb, PKVM_SMMU_CB_SCTLR, 0);
 	if (smmu->params->vmid16)
 		cba2r |= FIELD_PREP(PKVM_SMMU_CBA2R_VMID16, domain->vmid);
@@ -458,6 +484,7 @@ static int tegra_host_stage2_idmap(phys_addr_t start, phys_addr_t end, int prot)
 	else
 		ret = kvm_pgtable_stage2_unmap(&domain->pgt, start, end - start);
 	if (!ret) {
+		tegra_sync_pgtable(domain, start, end - start);
 		for (i = 0; i < pkvm_tegra_smmu_count; i++)
 			ret = tegra_smmu_flush_vmid(&tegra_smmus[i], 0);
 	}
@@ -486,10 +513,10 @@ static int tegra_alloc_domain(pkvm_handle_t iommu_id,
 	hyp_spin_lock_init(&domain->lock);
 
 	hyp_spin_lock(&smmu->lock);
-	for (cb = 1; cb < smmu->params->num_s2_context_banks; cb++)
+	for (cb = 1; cb < smmu->params->num_context_banks; cb++)
 		if (!test_bit(cb, smmu->context_map))
 			break;
-	if (cb >= smmu->params->num_s2_context_banks) {
+	if (cb >= smmu->params->num_context_banks) {
 		ret = -ENOSPC;
 		goto err_unlock;
 	}
@@ -622,13 +649,19 @@ static int tegra_map_pages(struct kvm_hyp_iommu_domain *core_domain,
 	}
 	if (mapped) {
 		/* Publish successful leaves, including a partial -ENOMEM map. */
+		tegra_sync_pgtable(domain, iova, mapped);
 		if (tegra_smmu_flush_vmid(domain->smmu, domain->vmid)) {
 			/* Keep the DMA pins if stale translations cannot be excluded. */
-			if (!kvm_pgtable_stage2_unmap(&domain->pgt, iova, mapped) &&
-			    !tegra_smmu_flush_vmid(domain->smmu, domain->vmid))
-				mapped = 0;
-			else
+			if (!kvm_pgtable_stage2_unmap(&domain->pgt, iova, mapped)) {
+				tegra_sync_pgtable(domain, iova, mapped);
+				if (!tegra_smmu_flush_vmid(domain->smmu,
+							    domain->vmid))
+					mapped = 0;
+				else
+					stale = true;
+			} else {
 				stale = true;
+			}
 			ret = -EIO;
 		}
 	}
@@ -665,6 +698,7 @@ static size_t tegra_unmap_pages(struct kvm_hyp_iommu_domain *core_domain,
 		phys = kvm_pte_to_phys(pte);
 		if (kvm_pgtable_stage2_unmap(&domain->pgt, iova, PAGE_SIZE))
 			break;
+		tegra_sync_pgtable(domain, iova, PAGE_SIZE);
 		if (tegra_smmu_flush_vmid(domain->smmu, domain->vmid))
 			break;
 		WARN_ON(iommu_pkvm_unuse_dma(phys, PAGE_SIZE));
@@ -759,17 +793,17 @@ static int tegra_init(pkvm_handle_t driver_id)
 		struct pkvm_tegra_hyp_smmu *smmu = &tegra_smmus[i];
 
 		params = &pkvm_tegra_smmu_devices[i];
-		if (!params->coherent_walk || params->pgshift != PAGE_SHIFT ||
+		if ((params->pgshift != 12 && params->pgshift != 16) ||
 		    !params->num_instances ||
 		    params->num_instances > PKVM_TEGRA_SMMU_MAX_INSTANCES ||
 		    params->num_context_banks >
 			PKVM_TEGRA_SMMU_MAX_CONTEXT_BANKS ||
-		    params->num_s2_context_banks < 2 ||
 		    params->num_s2_context_banks > params->num_context_banks ||
 		    params->num_mapping_groups > PKVM_TEGRA_SMMU_MAX_SMRS ||
 		    tegra_ps(min(params->ias, params->oas)) < 0)
 			return -ENODEV;
 		smmu->params = params;
+		tegra_noncoherent_walk |= !params->coherent_walk;
 		hyp_spin_lock_init(&smmu->lock);
 		for (word = 0; word < ARRAY_SIZE(smmu->context_map); word++)
 			smmu->context_map[word] = 0;
