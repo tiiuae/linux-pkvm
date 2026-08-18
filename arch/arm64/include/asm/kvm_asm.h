@@ -95,6 +95,17 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___pkvm_iommu_debug_read,
 	__KVM_HOST_SMCCC_FUNC___pkvm_devices_init,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_set_identity,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_alloc_domain,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_free_domain,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_attach_dev,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_detach_dev,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_map_pages,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_unmap_pages,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_iova_to_phys,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_map_sg,
+	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_refill,
+	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_reclaimable,
+	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_reclaim,
 
 	MARKER(__KVM_HOST_SMCCC_FUNC_PKVM_ONLY),
 
@@ -120,15 +131,7 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___pkvm_vcpu_load,
 	__KVM_HOST_SMCCC_FUNC___pkvm_vcpu_put,
 	__KVM_HOST_SMCCC_FUNC___pkvm_tlb_flush_vmid,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_alloc_domain,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_free_domain,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_attach_dev,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_attach_dev_nested,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_detach_dev,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_map_pages,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_unmap_pages,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_iova_to_phys,
-	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_map_sg,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_iotlb_inv_nested_domain,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_nested_cfg_sync,
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_page_response,
@@ -138,10 +141,6 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___pkvm_host_map_guest_mmio,
 	__KVM_HOST_SMCCC_FUNC___pkvm_pviommu_attach,
 	__KVM_HOST_SMCCC_FUNC___pkvm_pviommu_add_vsid,
-	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_refill,
-	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_reclaimable,
-	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_reclaim,
-
 	MARKER(__KVM_HOST_SMCCC_FUNC_MAX)
 };
 
