@@ -651,7 +651,7 @@ static int pkvm_tegra_init_driver(void)
 	if (ret)
 		return ret;
 	for (size_t iommu = 0; iommu < pkvm_tegra_smmu_count; iommu++) {
-		for (u32 selector = 0; selector < 13; selector++) {
+		for (u32 selector = 0; selector < 19; selector++) {
 			u64 value0 = 0, value1 = 0;
 
 			ret = kvm_iommu_debug_read(pkvm_tegra_hyp_driver, iommu,

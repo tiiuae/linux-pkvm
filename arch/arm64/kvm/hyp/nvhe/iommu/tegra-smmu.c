@@ -907,6 +907,29 @@ static int tegra_debug_leaf(u64 iova, u64 *value0, u64 *value1)
 	return 0;
 }
 
+static int tegra_debug_ats(struct pkvm_tegra_hyp_smmu *smmu,
+			   unsigned int instance, u64 iova,
+			   u64 *value0, u64 *value1)
+{
+	void __iomem *cb;
+	unsigned int spin;
+
+	if (instance >= smmu->params->num_instances)
+		return -ENOENT;
+	cb = tegra_smmu_cb(smmu, instance, tegra_identity_domain.cb);
+	writeq_relaxed(iova & PAGE_MASK, cb + PKVM_SMMU_CB_ATS1PR);
+	for (spin = 0; spin < PKVM_TEGRA_ATS_SPINS; spin++) {
+		if (!(readl_relaxed(cb + PKVM_SMMU_CB_ATSR) &
+		      PKVM_SMMU_CB_ATSR_ACTIVE)) {
+			*value0 = readq_relaxed(cb + PKVM_SMMU_CB_PAR);
+			*value1 = iova;
+			return 0;
+		}
+		cpu_relax();
+	}
+	return -ETIMEDOUT;
+}
+
 static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 			    u64 *value0, u64 *value1)
 {
@@ -1059,6 +1082,31 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 	case 12:
 		return tegra_debug_leaf(0x0000000370000000ULL,
 					value0, value1);
+	case 13:
+		*value0 = ((u64)readl_relaxed(cb + PKVM_SMMU_CB_FSR) << 32) |
+			  readl_relaxed(cb + PKVM_SMMU_CB_FSYNR0);
+		*value1 = readq_relaxed(cb + PKVM_SMMU_CB_FAR);
+		return 0;
+	case 14:
+		if (smmu->params->num_instances < 2)
+			return -ENOENT;
+		cb = tegra_smmu_cb(smmu, 1, domain->cb);
+		*value0 = ((u64)readl_relaxed(cb + PKVM_SMMU_CB_FSR) << 32) |
+			  readl_relaxed(cb + PKVM_SMMU_CB_FSYNR0);
+		*value1 = readq_relaxed(cb + PKVM_SMMU_CB_FAR);
+		return 0;
+	case 15:
+		return tegra_debug_ats(smmu, 0, 0x0000000080000000ULL,
+				       value0, value1);
+	case 16:
+		return tegra_debug_ats(smmu, 1, 0x0000000080000000ULL,
+				       value0, value1);
+	case 17:
+		return tegra_debug_ats(smmu, 0, 0x0000000370000000ULL,
+				       value0, value1);
+	case 18:
+		return tegra_debug_ats(smmu, 1, 0x0000000370000000ULL,
+				       value0, value1);
 	default:
 		return -EINVAL;
 	}
