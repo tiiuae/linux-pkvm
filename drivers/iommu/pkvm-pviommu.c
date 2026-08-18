@@ -210,14 +210,17 @@ static void pviommu_remove_dev_pasid(struct device *dev, ioasid_t pasid,
 {
 	struct pviommu_master *master = dev_iommu_priv_get(dev);
 	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
-	struct pviommu *pv = master->iommu;
-	struct pviommu_domain *pv_domain = container_of(domain, struct pviommu_domain, domain);
+	struct pviommu_domain *pv_domain;
+	struct pviommu *pv;
 	struct arm_smccc_res res;
 	u32 sid;
 	int i;
 
-	if (!fwspec || !pv_domain)
+	if (!master || !fwspec || !domain)
 		return;
+
+	pv = master->iommu;
+	pv_domain = container_of(domain, struct pviommu_domain, domain);
 
 	for (i = 0; i < fwspec->num_ids; i++) {
 		sid = fwspec->ids[i];
@@ -258,6 +261,10 @@ static int pviommu_set_dev_pasid(struct iommu_domain *domain,
 				  pv->id, sid, pasid,
 				  pv_domain->id, master->ssid_bits, &res);
 		if (res.a0) {
+			dev_err(dev,
+				"attach_dev sid %u failed: smccc %ld, hyp %ld, stage %lu, endpoint %lu\n",
+				sid, (long)res.a0, (long)res.a1, res.a2,
+				res.a3);
 			ret = smccc_to_linux_ret(res.a0);
 			break;
 		}
@@ -309,9 +316,13 @@ static struct platform_driver pkvm_pviommu_driver;
 static struct pviommu *pviommu_get_by_fwnode(struct fwnode_handle *fwnode)
 {
 	struct device *dev = bus_find_device_by_fwnode(&platform_bus_type, fwnode);
+	struct pviommu *pv;
 
+	if (!dev)
+		return NULL;
+	pv = dev_get_drvdata(dev);
 	put_device(dev);
-	return dev ? dev_get_drvdata(dev) : NULL;
+	return pv;
 }
 
 static struct iommu_ops pviommu_ops;
@@ -346,7 +357,8 @@ static void pviommu_release_device(struct device *dev)
 	struct pviommu_master *master = dev_iommu_priv_get(dev);
 	struct iommu_domain *domain = iommu_get_domain_for_dev(dev);
 
-	pviommu_detach_dev(master, domain);
+	if (master && domain)
+		pviommu_detach_dev(master, domain);
 }
 
 static int pviommu_of_xlate(struct device *dev, const struct of_phandle_args *args)

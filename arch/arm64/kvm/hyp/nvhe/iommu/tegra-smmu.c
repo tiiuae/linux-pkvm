@@ -74,7 +74,7 @@ static struct pkvm_tegra_hyp_smmu
 	tegra_smmus[PKVM_TEGRA_SMMU_MAX_DEVICES];
 static struct pkvm_tegra_hyp_domain tegra_identity_domain;
 static struct pkvm_tegra_hyp_domain
-	*tegra_host_domains[KVM_IOMMU_MAX_HOST_DOMAINS];
+	*tegra_domains[KVM_IOMMU_MAX_DOMAINS];
 static struct kvm_pgtable_mm_ops tegra_identity_mm_ops;
 static struct kvm_pgtable_mm_ops tegra_domain_mm_ops;
 static bool tegra_noncoherent_walk;
@@ -618,8 +618,14 @@ static int tegra_alloc_domain(pkvm_handle_t iommu_id,
 	unsigned int cb;
 	int ret;
 
-	if (!smmu || type != 1 ||
-	    core_domain->domain_id >= KVM_IOMMU_MAX_HOST_DOMAINS)
+	/*
+	 * Host domains request the unmanaged type (1), while pvIOMMU guest
+	 * domains use KVM_IOMMU_DOMAIN_ANY_TYPE.  Both are backed by the same
+	 * stage-2 page-table implementation here.
+	 */
+	if (!smmu ||
+	    (type != KVM_IOMMU_DOMAIN_ANY_TYPE && type != 1) ||
+	    core_domain->domain_id >= KVM_IOMMU_MAX_DOMAINS)
 		return -EINVAL;
 	domain = hyp_alloc(sizeof(*domain));
 	if (!domain) {
@@ -650,7 +656,7 @@ static int tegra_alloc_domain(pkvm_handle_t iommu_id,
 		goto err_cb;
 	tegra_program_context(smmu, domain);
 	core_domain->priv = domain;
-	tegra_host_domains[core_domain->domain_id] = domain;
+	tegra_domains[core_domain->domain_id] = domain;
 	return 0;
 
 err_cb:
@@ -685,7 +691,7 @@ static void tegra_free_domain(struct kvm_hyp_iommu_domain *core_domain)
 
 	if (!domain)
 		return;
-	tegra_host_domains[core_domain->domain_id] = NULL;
+	tegra_domains[core_domain->domain_id] = NULL;
 	tegra_smmu_cb_write(domain->smmu, domain->cb,
 			    PKVM_SMMU_CB_SCTLR, 0);
 	WARN_ON(tegra_smmu_flush_vmid(domain->smmu, domain->vmid));
@@ -953,9 +959,9 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 		unsigned int instance;
 		unsigned int spin;
 
-		if (domain_id >= KVM_IOMMU_MAX_HOST_DOMAINS)
+		if (domain_id >= KVM_IOMMU_MAX_DOMAINS)
 			return -EINVAL;
-		domain = tegra_host_domains[domain_id];
+		domain = tegra_domains[domain_id];
 		if (!domain || domain->smmu != smmu)
 			return -ENOENT;
 		cb = tegra_smmu_cb(smmu, 0, domain->cb);

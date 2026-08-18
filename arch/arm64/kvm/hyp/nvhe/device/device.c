@@ -421,12 +421,27 @@ int pkvm_devices_get_context(u64 iommu_id, u32 endpoint_id, struct pkvm_hyp_vm *
 		return vm ? -EPERM : 0;
 
 	hyp_spin_lock(&device_spinlock);
+	/*
+	 * A guest can attach its DMA domain before it accesses any of the
+	 * device's MMIO regions.  In that case, the stage-2 fault path has not
+	 * had a chance to assign and reset the device yet.  Treat the first
+	 * guest IOMMU operation as an assignment point as well so that DMA can
+	 * be configured before the driver starts touching registers.
+	 */
+	if (vm && !dev->ctxt) {
+		ret = __pkvm_group_assign(dev->group_id, vm);
+		if (ret)
+			goto out;
+	}
+
 	if (dev->ctxt != vm)
 		ret = -EPERM;
 	else if (dev->refcount == USHRT_MAX)
 		ret = -EOVERFLOW;
 	else
 		dev->refcount++;
+
+out:
 	hyp_spin_unlock(&device_spinlock);
 	return ret;
 }

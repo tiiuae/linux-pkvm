@@ -1669,6 +1669,31 @@ struct kvm_s2_fault_vma_info {
 	bool		map_non_cacheable;
 };
 
+static int pkvm_mem_abort_device(const struct kvm_s2_fault_desc *s2fd)
+{
+	bool writable;
+	struct page *page;
+	kvm_pfn_t pfn;
+	gfn_t gfn;
+	int ret;
+
+	gfn = s2fd->fault_ipa >> PAGE_SHIFT;
+	pfn = __kvm_faultin_pfn(s2fd->memslot, gfn,
+				kvm_is_write_fault(s2fd->vcpu) ? FOLL_WRITE : 0,
+				&writable, &page);
+	if (is_error_noslot_pfn(pfn))
+		return -EREMOTEIO;
+
+	if (pfn_is_map_memory(pfn)) {
+		kvm_release_faultin_page(s2fd->vcpu->kvm, page, true, writable);
+		return -EREMOTEIO;
+	}
+
+	ret = kvm_call_refill_hyp_nvhe(__pkvm_host_map_guest_mmio, pfn, gfn);
+	/* Another vCPU may have completed the mapping first. */
+	return ret == -EEXIST ? 0 : ret;
+}
+
 static int pkvm_mem_abort(const struct kvm_s2_fault_desc *s2fd)
 {
 	unsigned int flags = FOLL_HWPOISON | FOLL_LONGTERM | FOLL_WRITE;
@@ -1698,7 +1723,9 @@ static int pkvm_mem_abort(const struct kvm_s2_fault_desc *s2fd)
 		ret = 0;
 		goto dec_account;
 	} else if (ret != 1) {
-		ret = -EFAULT;
+		ret = pkvm_mem_abort_device(s2fd);
+		if (ret == -EREMOTEIO)
+			ret = -EFAULT;
 		goto dec_account;
 	} else if (!folio_test_swapbacked(page_folio(page))) {
 		/*

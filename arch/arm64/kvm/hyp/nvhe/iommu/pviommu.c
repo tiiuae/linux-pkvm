@@ -76,6 +76,7 @@ static void pkvm_pviommu_hyp_req(u64 *exit_code)
 static bool pkvm_guest_iommu_attach_dev(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 {
 	int ret;
+	u64 stage = 1;
 	struct kvm_vcpu *vcpu = &hyp_vcpu->vcpu;
 	u64 iommu_id = smccc_get_arg2(vcpu);
 	u64 sid = smccc_get_arg3(vcpu);
@@ -91,6 +92,7 @@ static bool pkvm_guest_iommu_attach_dev(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exi
 	iommu_id = route.iommu;
 	sid = route.sid;
 
+	stage = 2;
 	ret = kvm_iommu_alloc_domain(pviommu_drv_id, iommu_id, domain_id, KVM_IOMMU_DOMAIN_ANY_TYPE);
 	if (ret == -ENOMEM) {
 		pkvm_pviommu_hyp_req(exit_code);
@@ -99,6 +101,7 @@ static bool pkvm_guest_iommu_attach_dev(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exi
 		goto out_ret;
 	}
 
+	stage = 3;
 	ret = kvm_iommu_attach_dev(iommu_id, domain_id, sid, pasid, pasid_bits, 0);
 	if (ret == -ENOMEM) {
 		WARN_ON(kvm_iommu_free_domain(domain_id));
@@ -111,7 +114,7 @@ static bool pkvm_guest_iommu_attach_dev(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exi
 	}
 out_ret:
 	smccc_set_retval(vcpu, ret ?  SMCCC_RET_INVALID_PARAMETER : SMCCC_RET_SUCCESS,
-			 0, 0, 0);
+			 (u64)(s64)ret, stage, sid);
 	return true;
 }
 
