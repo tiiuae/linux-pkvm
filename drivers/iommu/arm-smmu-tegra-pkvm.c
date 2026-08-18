@@ -581,6 +581,15 @@ static int pkvm_tegra_probe(struct platform_device *pdev)
 	host_smmu->id = pkvm_tegra_smmu_current;
 	host_smmu->address_bits = min3(hyp_smmu->ias, hyp_smmu->oas,
 				       get_kvm_ipa_limit());
+	/*
+	 * Keep the pKVM bring-up DMA aperture below 4 GiB.  Tegra234 clients
+	 * using the top of their 39-bit DMA mask currently reach the memory
+	 * controller as 0xffffffff00 without raising a context-bank fault,
+	 * while clients allocated in the 32-bit aperture translate normally.
+	 * Preserve the SMMU's full output address size so buffers may remain
+	 * above 4 GiB; this limit applies only to device-visible IOVAs.
+	 */
+	host_smmu->address_bits = min(host_smmu->address_bits, 32U);
 	host_smmu->mc = devm_tegra_memory_controller_get(dev);
 	if (IS_ERR(host_smmu->mc))
 		return PTR_ERR(host_smmu->mc);
