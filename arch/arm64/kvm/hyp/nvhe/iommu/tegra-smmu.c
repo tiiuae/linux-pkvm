@@ -63,6 +63,7 @@ static struct pkvm_tegra_hyp_domain tegra_identity_domain;
 static struct kvm_pgtable_mm_ops tegra_identity_mm_ops;
 static struct kvm_pgtable_mm_ops tegra_domain_mm_ops;
 static bool tegra_noncoherent_walk;
+static bool tegra_snapshotting;
 
 struct pkvm_tegra_mgbe {
 	phys_addr_t hv_base;
@@ -231,7 +232,13 @@ static void tegra_domain_free_unlinked(void *addr, s8 level)
 
 static bool tegra_force_pte(u64 addr, u64 end, enum kvm_pgtable_prot prot)
 {
-	return true;
+	/*
+	 * Build the initial RAM identity map with blocks, as the Android pKVM
+	 * IOMMU backends do. Subsequent host stage-2 permission changes remain
+	 * page-granular so that replacing a block cannot expose neighbouring
+	 * pages and so the Tegra walk-cache workaround never frees a split table.
+	 */
+	return !tegra_snapshotting;
 }
 
 static int tegra_ps(unsigned int address_bits)
@@ -305,8 +312,14 @@ static u32 tegra_domain_vtcr(struct pkvm_tegra_hyp_domain *domain)
 static int tegra_sync_pte(const struct kvm_pgtable_visit_ctx *ctx,
 			  enum kvm_pgtable_walk_flags visit)
 {
-	dcache_clean_inval_poc((unsigned long)ctx->ptep,
-			       (unsigned long)(ctx->ptep + 1));
+	void *child;
+
+	if (visit != KVM_PGTABLE_WALK_TABLE_POST)
+		return 0;
+
+	child = ctx->mm_ops->phys_to_virt(kvm_pte_to_phys(ctx->old));
+	dcache_clean_inval_poc((unsigned long)child,
+			       (unsigned long)child + PAGE_SIZE);
 	return 0;
 }
 
@@ -322,6 +335,9 @@ static void tegra_sync_pgtable(struct pkvm_tegra_hyp_domain *domain,
 	if (!tegra_noncoherent_walk)
 		return;
 	WARN_ON(kvm_pgtable_walk(&domain->pgt, start, size, &walker));
+	/* The root table has no parent entry for the post-order walker. */
+	dcache_clean_inval_poc((unsigned long)domain->pgt.pgd,
+			       (unsigned long)domain->pgt.pgd + PAGE_SIZE);
 	dsb(sy);
 }
 
@@ -469,6 +485,15 @@ static int tegra_host_stage2_idmap(phys_addr_t start, phys_addr_t end, int prot)
 
 	end = min_t(phys_addr_t, end, BIT(domain->pgt.ia_bits));
 	if (start >= end)
+		return 0;
+	/*
+	 * Empty non-memory leaves cover most of the host IPA space during the
+	 * initial stage-2 snapshot. They are not DMA targets and mirroring them
+	 * either consumes the atomic page-table pool or requires block mappings
+	 * that would later require unsafe splitting. Mirror RAM with blocks during
+	 * the snapshot, then keep runtime permission updates page-granular.
+	 */
+	if (tegra_snapshotting && (prot & IOMMU_MMIO))
 		return 0;
 	if (prot & IOMMU_READ)
 		pgt_prot |= KVM_PGTABLE_PROT_R;
@@ -862,7 +887,9 @@ static int tegra_init(pkvm_handle_t driver_id)
 	for (i = 0; i < pkvm_tegra_smmu_count; i++)
 		tegra_program_context(&tegra_smmus[i], &tegra_identity_domain);
 
+	tegra_snapshotting = true;
 	ret = kvm_iommu_register_pviommu_drv(driver_id);
+	tegra_snapshotting = false;
 	return ret;
 }
 
