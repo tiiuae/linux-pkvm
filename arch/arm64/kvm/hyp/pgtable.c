@@ -646,6 +646,13 @@ void kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
 				phys_addr_t addr, size_t size)
 {
 	unsigned long pages, inval_pages;
+	void (*flush_tlb)(struct kvm_s2_mmu *mmu);
+
+	flush_tlb = mmu->pgt->mm_ops->stage2_flush_tlb;
+	if (flush_tlb) {
+		flush_tlb(mmu);
+		return;
+	}
 
 	if (!system_supports_tlb_range()) {
 		kvm_call_hyp(__kvm_tlb_flush_vmid, mmu);
@@ -660,6 +667,17 @@ void kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
 		addr += inval_pages << PAGE_SHIFT;
 		pages -= inval_pages;
 	}
+}
+
+static bool stage2_flush_tlb(struct kvm_s2_mmu *mmu)
+{
+	void (*flush_tlb)(struct kvm_s2_mmu *mmu);
+
+	flush_tlb = mmu->pgt->mm_ops->stage2_flush_tlb;
+	if (!flush_tlb)
+		return false;
+	flush_tlb(mmu);
+	return true;
 }
 
 #define KVM_S2_MEMATTR(pgt, attr)					\
@@ -854,7 +872,7 @@ static bool stage2_try_break_pte(const struct kvm_pgtable_visit_ctx *ctx,
 			u64 addr = ALIGN_DOWN(ctx->addr, size);
 
 			kvm_tlb_flush_vmid_range(mmu, addr, size);
-		} else if (kvm_pte_valid(ctx->old)) {
+		} else if (kvm_pte_valid(ctx->old) && !stage2_flush_tlb(mmu)) {
 			kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, mmu,
 				     ctx->addr, ctx->level);
 		}
@@ -880,6 +898,9 @@ static void stage2_make_pte(const struct kvm_pgtable_visit_ctx *ctx, kvm_pte_t n
 
 static bool stage2_unmap_defer_tlb_flush(struct kvm_pgtable *pgt)
 {
+	if (pgt->mm_ops->stage2_flush_tlb)
+		return true;
+
 	/*
 	 * If FEAT_TLBIRANGE is implemented, defer the individual
 	 * TLB invalidations until the entire walk is finished, and
@@ -905,7 +926,9 @@ static void stage2_unmap_put_pte(const struct kvm_pgtable_visit_ctx *ctx,
 	if (kvm_pte_valid(ctx->old)) {
 		kvm_clear_pte(ctx->ptep);
 
-		if (kvm_pte_table(ctx->old, ctx->level)) {
+		if (stage2_flush_tlb(mmu)) {
+			/* The non-CPU stage-2 owner invalidated its translations. */
+		} else if (kvm_pte_table(ctx->old, ctx->level)) {
 			kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, mmu, ctx->addr,
 				     TLBI_TTL_UNKNOWN);
 		} else if (!stage2_unmap_defer_tlb_flush(pgt)) {
@@ -1378,7 +1401,7 @@ int kvm_pgtable_stage2_relax_perms(struct kvm_pgtable *pgt, u64 addr,
 	clr |= ~xn & KVM_PTE_LEAF_ATTR_HI_S2_XN;
 
 	ret = stage2_update_leaf_attrs(pgt, addr, 1, set, clr, NULL, &level, flags);
-	if (!ret || ret == -EAGAIN)
+	if ((!ret || ret == -EAGAIN) && !stage2_flush_tlb(pgt->mmu))
 		kvm_call_hyp(__kvm_tlb_flush_vmid_ipa_nsh, pgt->mmu, addr,
 			     (ret == -EAGAIN) ? TLBI_TTL_UNKNOWN : level);
 	return ret;

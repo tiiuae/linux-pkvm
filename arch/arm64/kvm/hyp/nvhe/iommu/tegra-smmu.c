@@ -193,6 +193,14 @@ static int tegra_smmu_flush_vmid(struct pkvm_tegra_hyp_smmu *smmu, u16 vmid)
 	return tegra_smmu_tlb_sync(smmu);
 }
 
+static void tegra_pgtable_flush_tlb(struct kvm_s2_mmu *mmu)
+{
+	struct pkvm_tegra_hyp_domain *domain;
+
+	domain = container_of(mmu, struct pkvm_tegra_hyp_domain, mmu);
+	WARN_ON(tegra_smmu_flush_vmid(domain->smmu, domain->vmid));
+}
+
 static void *tegra_atomic_zalloc_page(void *arg)
 {
 	return kvm_iommu_donate_pages_atomic(0);
@@ -1203,6 +1211,7 @@ static int tegra_init(pkvm_handle_t driver_id)
 		.page_count = tegra_page_count,
 		.phys_to_virt = hyp_phys_to_virt,
 		.virt_to_phys = hyp_virt_to_phys,
+		.stage2_flush_tlb = tegra_pgtable_flush_tlb,
 	};
 	tegra_domain_mm_ops = (struct kvm_pgtable_mm_ops) {
 		.zalloc_page = tegra_domain_zalloc_page,
@@ -1214,6 +1223,7 @@ static int tegra_init(pkvm_handle_t driver_id)
 		.page_count = tegra_page_count,
 		.phys_to_virt = hyp_phys_to_virt,
 		.virt_to_phys = hyp_virt_to_phys,
+		.stage2_flush_tlb = tegra_pgtable_flush_tlb,
 	};
 	memset(&tegra_identity_domain, 0, sizeof(tegra_identity_domain));
 	tegra_identity_domain.cb = 0;

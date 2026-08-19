@@ -230,6 +230,9 @@ static inline bool kvm_is_block_size_supported(u64 size)
  *				for the	specified memory address range.
  * @icache_inval_pou:		Invalidate the instruction cache to the PoU
  *				for the specified memory address range.
+ * @stage2_flush_tlb:		Optional full translation-cache invalidation for
+ *				a non-CPU stage-2 page-table user. KVM performs
+ *				architectural CPU TLBI when this is unset.
  */
 struct kvm_pgtable_mm_ops {
 	void*		(*zalloc_page)(void *arg);
@@ -243,6 +246,7 @@ struct kvm_pgtable_mm_ops {
 	phys_addr_t	(*virt_to_phys)(void *addr);
 	void		(*dcache_clean_inval_poc)(void *addr, size_t size);
 	void		(*icache_inval_pou)(void *addr, size_t size);
+	void		(*stage2_flush_tlb)(struct kvm_s2_mmu *mmu);
 };
 
 /**
