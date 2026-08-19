@@ -19,6 +19,7 @@
 #include <linux/platform_device.h>
 #include <linux/workqueue.h>
 
+#include <dt-bindings/memory/tegra234-mc.h>
 #include <soc/tegra/mc.h>
 
 #include <kvm/tegra-smmu-pkvm.h>
@@ -481,6 +482,15 @@ static struct iommu_group *pkvm_tegra_device_group(struct device *dev)
 
 static int pkvm_tegra_default_domain(struct device *dev)
 {
+	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
+
+	/*
+	 * XUSB cannot use the physical-address identity context on Tegra234.
+	 * Keep its DMA mappings explicit and owned by the pKVM IOMMU backend.
+	 */
+	if (fwspec && fwspec->num_ids == 1 &&
+	    fwspec->ids[0] == TEGRA234_SID_XUSB_HOST)
+		return 0;
 	return IOMMU_DOMAIN_IDENTITY;
 }
 
@@ -592,6 +602,12 @@ static int pkvm_tegra_probe(struct platform_device *pdev)
 	host_smmu->id = pkvm_tegra_smmu_current;
 	host_smmu->address_bits = min3(hyp_smmu->ias, hyp_smmu->oas,
 				       get_kvm_ipa_limit());
+	/*
+	 * Keep translated-domain IOVAs below 4 GiB.  Identity-domain clients
+	 * still use their physical DMA addresses, and the SMMU output address
+	 * size remains unchanged for buffers above 4 GiB.
+	 */
+	host_smmu->address_bits = min(host_smmu->address_bits, 32U);
 	host_smmu->mc = devm_tegra_memory_controller_get(dev);
 	if (IS_ERR(host_smmu->mc))
 		return PTR_ERR(host_smmu->mc);
