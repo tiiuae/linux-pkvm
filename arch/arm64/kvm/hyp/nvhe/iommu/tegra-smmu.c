@@ -90,14 +90,53 @@ static struct pkvm_tegra_mgbe tegra_mgbe0 = {
 	.mac_base = PKVM_TEGRA_MGBE0_MAC_BASE,
 };
 
+static int tegra_mgbe_reclaim_reset_page(phys_addr_t phys)
+{
+	int ret;
+
+	ret = pkvm_reclaim_guest_mmio_to_host(phys, PAGE_SIZE);
+	if (ret)
+		return ret;
+
+	return pkvm_host_donate_hyp_mmio(phys >> PAGE_SHIFT, 1,
+					 PAGE_HYP_DEVICE);
+}
+
+static int tegra_mgbe_release_reset_page(phys_addr_t phys)
+{
+	return pkvm_hyp_reclaim_mmio(phys >> PAGE_SHIFT, 1);
+}
+
 static int tegra_mgbe_reset(void *cookie, bool host_to_guest)
 {
 	struct pkvm_tegra_mgbe *mgbe = cookie;
+	phys_addr_t intr_phys = (mgbe->mac_base +
+				 PKVM_TEGRA_MGBE_WRAP_INTR_ENABLE) & PAGE_MASK;
+	phys_addr_t dma_phys = (mgbe->mac_base + PKVM_TEGRA_MGBE_DMA_MODE) &
+				PAGE_MASK;
 	void __iomem *mac = hyp_phys_to_virt(mgbe->mac_base);
+	bool intr_reclaimed = false;
+	bool dma_reclaimed = false;
 	u32 value;
 	unsigned int spin;
+	int ret = 0;
 
-	(void)host_to_guest;
+	/*
+	 * Guest MMIO faults transfer each mapped page out of the hypervisor
+	 * stage-1.  Reclaim the two pages needed for trusted teardown reset,
+	 * then return them to the host before generic device reclaim runs.
+	 */
+	if (!host_to_guest) {
+		ret = tegra_mgbe_reclaim_reset_page(intr_phys);
+		if (ret)
+			return ret;
+		intr_reclaimed = true;
+
+		ret = tegra_mgbe_reclaim_reset_page(dma_phys);
+		if (ret)
+			goto out_release;
+		dma_reclaimed = true;
+	}
 
 	/* The guest driver restores this wrapper interrupt gate. */
 	writel_relaxed(0, mac + PKVM_TEGRA_MGBE_WRAP_INTR_ENABLE);
@@ -108,11 +147,17 @@ static int tegra_mgbe_reset(void *cookie, bool host_to_guest)
 	for (spin = 0; spin < PKVM_TEGRA_MGBE_RESET_SPINS; spin++) {
 		value = readl_relaxed(mac + PKVM_TEGRA_MGBE_DMA_MODE);
 		if (!(value & PKVM_TEGRA_MGBE_DMA_MODE_SWR))
-			return 0;
+			goto out_release;
 		cpu_relax();
 	}
+	ret = -ETIMEDOUT;
 
-	return -ETIMEDOUT;
+out_release:
+	if (dma_reclaimed && tegra_mgbe_release_reset_page(dma_phys) && !ret)
+		ret = -EIO;
+	if (intr_reclaimed && tegra_mgbe_release_reset_page(intr_phys) && !ret)
+		ret = -EIO;
+	return ret;
 }
 
 static struct pkvm_device_ops tegra_mgbe_ops = {
