@@ -763,7 +763,7 @@ static int pkvm_tegra_device_id(struct device *dev, u32 idx,
 	if (idx >= fwspec->num_ids)
 		return -ENOENT;
 	*out_iommu = master->smmu->id;
-	*out_sid = fwspec->ids[idx];
+	*out_sid = FIELD_GET(PKVM_SMMU_SMR_ID, fwspec->ids[idx]);
 	return 0;
 }
 
