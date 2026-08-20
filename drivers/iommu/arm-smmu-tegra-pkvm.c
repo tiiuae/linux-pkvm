@@ -189,9 +189,16 @@ static void pkvm_tegra_probe_finalize(struct device *dev)
 static int pkvm_tegra_of_xlate(struct device *dev,
 			       const struct of_phandle_args *args)
 {
+	u32 fwid, mask;
+
 	if (args->args_count != 1)
 		return -EINVAL;
-	return iommu_fwspec_add_ids(dev, args->args, 1);
+
+	fwid = FIELD_PREP(PKVM_SMMU_SMR_ID, args->args[0]);
+	if (!of_property_read_u32(args->np, "stream-match-mask", &mask))
+		fwid |= FIELD_PREP(PKVM_SMMU_SMR_MASK, mask);
+
+	return iommu_fwspec_add_ids(dev, &fwid, 1);
 }
 
 static int pkvm_tegra_attach(struct iommu_domain *domain, struct device *dev,
@@ -384,13 +391,34 @@ err_free:
 	return ERR_PTR(ret);
 }
 
-static bool pkvm_tegra_group_has_sid(const struct pkvm_tegra_group *group,
-				     u32 sid)
+static bool pkvm_tegra_streams_overlap(u32 first, u32 second)
+{
+	u16 first_id = FIELD_GET(PKVM_SMMU_SMR_ID, first);
+	u16 first_mask = FIELD_GET(PKVM_SMMU_SMR_MASK, first);
+	u16 second_id = FIELD_GET(PKVM_SMMU_SMR_ID, second);
+	u16 second_mask = FIELD_GET(PKVM_SMMU_SMR_MASK, second);
+
+	return !((first_id ^ second_id) & ~(first_mask | second_mask));
+}
+
+static bool pkvm_tegra_group_overlaps(const struct pkvm_tegra_group *group,
+				      u32 fwid)
 {
 	unsigned int i;
 
 	for (i = 0; i < group->num_sids; i++)
-		if (group->sids[i] == sid)
+		if (pkvm_tegra_streams_overlap(group->sids[i], fwid))
+			return true;
+	return false;
+}
+
+static bool pkvm_tegra_group_has_stream(const struct pkvm_tegra_group *group,
+					u32 fwid)
+{
+	unsigned int i;
+
+	for (i = 0; i < group->num_sids; i++)
+		if (group->sids[i] == fwid)
 			return true;
 	return false;
 }
@@ -420,7 +448,7 @@ static struct iommu_group *pkvm_tegra_device_group(struct device *dev)
 	mutex_lock(&master->smmu->group_lock);
 	list_for_each_entry(group, &master->smmu->groups, list) {
 		for (i = 0; i < fwspec->num_ids; i++) {
-			if (!pkvm_tegra_group_has_sid(group, fwspec->ids[i]))
+			if (!pkvm_tegra_group_overlaps(group, fwspec->ids[i]))
 				continue;
 			if (match && match != group) {
 				mutex_unlock(&master->smmu->group_lock);
@@ -433,7 +461,7 @@ static struct iommu_group *pkvm_tegra_device_group(struct device *dev)
 	if (match) {
 		num_sids = match->num_sids;
 		for (i = 0; i < fwspec->num_ids; i++)
-			if (!pkvm_tegra_group_has_sid(match, fwspec->ids[i]))
+			if (!pkvm_tegra_group_has_stream(match, fwspec->ids[i]))
 				num_sids++;
 		sids = krealloc_array(match->sids, num_sids, sizeof(*sids),
 				      GFP_KERNEL);
@@ -443,7 +471,7 @@ static struct iommu_group *pkvm_tegra_device_group(struct device *dev)
 		}
 		match->sids = sids;
 		for (i = 0; i < fwspec->num_ids; i++)
-			if (!pkvm_tegra_group_has_sid(match, fwspec->ids[i]))
+			if (!pkvm_tegra_group_has_stream(match, fwspec->ids[i]))
 				match->sids[match->num_sids++] = fwspec->ids[i];
 		group = match;
 		mutex_unlock(&master->smmu->group_lock);
@@ -489,7 +517,8 @@ static int pkvm_tegra_default_domain(struct device *dev)
 	 * Keep its DMA mappings explicit and owned by the pKVM IOMMU backend.
 	 */
 	if (fwspec && fwspec->num_ids == 1 &&
-	    fwspec->ids[0] == TEGRA234_SID_XUSB_HOST)
+	    FIELD_GET(PKVM_SMMU_SMR_ID, fwspec->ids[0]) ==
+		TEGRA234_SID_XUSB_HOST)
 		return 0;
 	return IOMMU_DOMAIN_IDENTITY;
 }

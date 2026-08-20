@@ -77,6 +77,7 @@ struct pkvm_tegra_smmu_device {
 #define PKVM_SMMU_TLBGSTATUS_ACTIVE	BIT(0)
 #define PKVM_SMMU_GR0_SMR(n)		(0x800 + ((n) << 2))
 #define PKVM_SMMU_SMR_VALID		BIT(31)
+#define PKVM_SMMU_SMR_MASK		GENMASK(30, 16)
 #define PKVM_SMMU_SMR_ID		GENMASK(15, 0)
 #define PKVM_SMMU_GR0_S2CR(n)		(0xc00 + ((n) << 2))
 #define PKVM_SMMU_S2CR_TYPE		GENMASK(17, 16)
