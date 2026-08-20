@@ -31,6 +31,7 @@ struct pkvm_tegra_smmu_device {
 	u32 num_s2_context_banks;
 	u32 num_mapping_groups;
 	u32 streamid_mask;
+	u32 stream_match_mask;
 	u32 ias;
 	u32 oas;
 	bool coherent_walk;

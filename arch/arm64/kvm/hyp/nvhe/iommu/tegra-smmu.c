@@ -508,6 +508,12 @@ static struct pkvm_tegra_hyp_smmu *tegra_smmu_from_id(pkvm_handle_t id)
 	return &tegra_smmus[array_index_nospec(id, pkvm_tegra_smmu_count)];
 }
 
+static u32 tegra_normalize_fwid(struct pkvm_tegra_hyp_smmu *smmu, u32 fwid)
+{
+	return fwid | FIELD_PREP(PKVM_SMMU_SMR_MASK,
+				 smmu->params->stream_match_mask);
+}
+
 static int tegra_find_smr(struct pkvm_tegra_hyp_smmu *smmu, u32 fwid)
 {
 	u16 id = FIELD_GET(PKVM_SMMU_SMR_ID, fwid);
@@ -548,10 +554,12 @@ static void tegra_block_smr(struct pkvm_tegra_hyp_smmu *smmu,
 
 static int tegra_route_sid(struct pkvm_tegra_hyp_smmu *smmu, u32 fwid, u8 cb)
 {
-	u16 id = FIELD_GET(PKVM_SMMU_SMR_ID, fwid);
-	u16 mask = FIELD_GET(PKVM_SMMU_SMR_MASK, fwid);
+	u16 id, mask;
 	int smr;
 
+	fwid = tegra_normalize_fwid(smmu, fwid);
+	id = FIELD_GET(PKVM_SMMU_SMR_ID, fwid);
+	mask = FIELD_GET(PKVM_SMMU_SMR_MASK, fwid);
 	if ((id | mask) & ~smmu->params->streamid_mask)
 		return -ERANGE;
 	smr = tegra_find_smr(smmu, fwid);
@@ -578,7 +586,10 @@ static int tegra_route_sid(struct pkvm_tegra_hyp_smmu *smmu, u32 fwid, u8 cb)
 static int tegra_unroute_sid(struct pkvm_tegra_hyp_smmu *smmu, u32 fwid,
 			     int expected_cb)
 {
-	int smr = tegra_find_smr(smmu, fwid);
+	int smr;
+
+	fwid = tegra_normalize_fwid(smmu, fwid);
+	smr = tegra_find_smr(smmu, fwid);
 
 	if (smr < 0 || !smmu->smr_valid[smr])
 		return -ENOENT;
@@ -948,6 +959,7 @@ static int tegra_dev_block_dma(pkvm_handle_t iommu_id, u32 sid,
 	if (!smmu)
 		return -ENODEV;
 	hyp_spin_lock(&smmu->lock);
+	sid = tegra_normalize_fwid(smmu, sid);
 	smr = tegra_find_smr(smmu, sid);
 	if (host_to_guest) {
 		if (smr >= 0 && smmu->smr_valid[smr])

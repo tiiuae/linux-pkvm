@@ -554,8 +554,9 @@ static int pkvm_tegra_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	void __iomem *base;
 	struct resource *res;
-	u32 id0, id1, id2;
+	u32 id0, id1, id2, mask;
 	unsigned int i;
+	int ret;
 
 	if (pkvm_tegra_smmu_current >= pkvm_tegra_smmu_count)
 		return -ENOSPC;
@@ -626,9 +627,17 @@ static int pkvm_tegra_probe(struct platform_device *pdev)
 	    !hyp_smmu->num_mapping_groups || !hyp_smmu->ias || !hyp_smmu->oas)
 		return dev_err_probe(dev, -ENODEV,
 				     "unsupported Tegra SMMU configuration\n");
+	ret = of_property_read_u32(dev->of_node, "stream-match-mask", &mask);
+	if (ret)
+		return dev_err_probe(dev, ret,
+				     "failed to read stream-match-mask\n");
+	if (mask > FIELD_MAX(PKVM_SMMU_SMR_MASK))
+		return dev_err_probe(dev, -ERANGE,
+				     "stream-match-mask %#x is too wide\n", mask);
 
 	host_smmu->dev = dev;
 	host_smmu->id = pkvm_tegra_smmu_current;
+	hyp_smmu->stream_match_mask = mask;
 	host_smmu->address_bits = min3(hyp_smmu->ias, hyp_smmu->oas,
 				       get_kvm_ipa_limit());
 	/*
