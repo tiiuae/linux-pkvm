@@ -815,6 +815,9 @@ static int __host_check_page_state_range(u64 addr, u64 size,
 	for_each_hyp_page(page, addr, size) {
 		if (get_host_state(page) != state)
 			return -EPERM;
+		/* DMA-pinned host pages cannot change ownership or sharing state. */
+		if (state == PKVM_PAGE_OWNED && page->refcount)
+			return -EBUSY;
 	}
 
 	return 0;
@@ -1732,8 +1735,6 @@ static int __host_check_dma_state_range(u64 addr, u64 size,
 	for_each_hyp_page(page, addr, size) {
 		if (get_host_state(page) != state)
 			return -EPERM;
-		if (state == PKVM_PAGE_OWNED && page->refcount)
-			return -EBUSY;
 	}
 
 	return 0;
