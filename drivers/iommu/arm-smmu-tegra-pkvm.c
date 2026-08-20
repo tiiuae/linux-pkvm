@@ -58,6 +58,17 @@ struct pkvm_tegra_domain {
 	unsigned int debug_maps;
 	struct delayed_work debug_work;
 	bool debug_work_scheduled;
+	unsigned int debug_samples;
+	atomic64_t debug_map_calls;
+	atomic64_t debug_unmap_calls;
+	atomic64_t debug_map_bytes;
+	atomic64_t debug_unmap_bytes;
+	u64 debug_last_map_iova;
+	u64 debug_last_map_phys;
+	u64 debug_last_map_size;
+	s64 debug_last_map_ret;
+	u64 debug_last_unmap_iova;
+	u64 debug_last_unmap_size;
 };
 
 #define to_pkvm_tegra_domain(d) \
@@ -74,8 +85,8 @@ static void pkvm_tegra_debug_workfn(struct work_struct *work)
 {
 	struct pkvm_tegra_domain *domain = container_of(
 		to_delayed_work(work), struct pkvm_tegra_domain, debug_work);
-	u64 value[12][2] = { };
-	int ret[12];
+	u64 value[21][2] = { };
+	int ret[21];
 	int op;
 
 	for (op = 0; op < ARRAY_SIZE(ret); op++)
@@ -83,12 +94,50 @@ static void pkvm_tegra_debug_workfn(struct work_struct *work)
 			pkvm_tegra_hyp_driver, domain->smmu->id,
 			PKVM_TEGRA_DEBUG_DOMAIN_SEL(domain->id, op),
 			&value[op][0], &value[op][1]);
-	for (op = 0; op < ARRAY_SIZE(ret); op++)
-		pr_err("tegra-pkvm-post-dma: smmu=%llu domain=%llu op=%d ret=%d value0=%#llx value1=%#llx\n",
-		       (unsigned long long)domain->smmu->id,
-		       (unsigned long long)domain->id, op, ret[op],
-		       (unsigned long long)value[op][0],
-		       (unsigned long long)value[op][1]);
+	if (!domain->debug_samples++) {
+		for (op = 0; op < 12; op++)
+			pr_err("tegra-pkvm-post-dma: smmu=%llu domain=%llu op=%d ret=%d value0=%#llx value1=%#llx\n",
+			       (unsigned long long)domain->smmu->id,
+			       (unsigned long long)domain->id, op, ret[op],
+			       (unsigned long long)value[op][0],
+			       (unsigned long long)value[op][1]);
+	}
+	pr_err("tegra-pkvm-dma-account: smmu=%llu domain=%llu host-map=%lld/%lld host-unmap=%lld/%lld hyp-map=%llu/%llu hyp-unmap=%llu/%llu live-pages=%llu peak-pages=%llu failures=%llu\n",
+	       (unsigned long long)domain->smmu->id,
+	       (unsigned long long)domain->id,
+	       (long long)atomic64_read(&domain->debug_map_calls),
+	       (long long)atomic64_read(&domain->debug_map_bytes),
+	       (long long)atomic64_read(&domain->debug_unmap_calls),
+	       (long long)atomic64_read(&domain->debug_unmap_bytes),
+	       (unsigned long long)value[12][0],
+	       (unsigned long long)value[13][0],
+	       (unsigned long long)value[12][1],
+	       (unsigned long long)value[13][1],
+	       (unsigned long long)value[14][0],
+	       (unsigned long long)value[14][1],
+	       (unsigned long long)value[18][1]);
+	pr_err("tegra-pkvm-dma-last-map: domain=%llu host=%#llx/%#llx/%llu/%lld hyp=%#llx/%#llx/%llu/%lld\n",
+	       (unsigned long long)domain->id,
+	       (unsigned long long)READ_ONCE(domain->debug_last_map_iova),
+	       (unsigned long long)READ_ONCE(domain->debug_last_map_phys),
+	       (unsigned long long)READ_ONCE(domain->debug_last_map_size),
+	       (long long)READ_ONCE(domain->debug_last_map_ret),
+	       (unsigned long long)value[15][0],
+	       (unsigned long long)value[15][1],
+	       (unsigned long long)value[16][0],
+	       (long long)value[16][1]);
+	pr_err("tegra-pkvm-dma-last-unmap: domain=%llu host=%#llx/%llu hyp=%#llx/%#llx/%llu atos0=%d/%#llx atos1=%d/%#llx\n",
+	       (unsigned long long)domain->id,
+	       (unsigned long long)READ_ONCE(domain->debug_last_unmap_iova),
+	       (unsigned long long)READ_ONCE(domain->debug_last_unmap_size),
+	       (unsigned long long)value[17][0],
+	       (unsigned long long)value[17][1],
+	       (unsigned long long)value[18][0], ret[19],
+	       (unsigned long long)value[19][0], ret[20],
+	       (unsigned long long)value[20][0]);
+	if (READ_ONCE(domain->debug_work_scheduled))
+		schedule_delayed_work(&domain->debug_work,
+				      msecs_to_jiffies(5000));
 }
 
 static unsigned int pkvm_tegra_id_size(u32 value)
@@ -294,6 +343,12 @@ static int pkvm_tegra_map_pages(struct iommu_domain *domain,
 		       pgsize, pgcount, prot);
 	ret = kvm_iommu_map_pages(tegra_domain->id, iova, paddr, pgsize,
 				  pgcount, prot, gfp, mapped);
+	atomic64_inc(&tegra_domain->debug_map_calls);
+	atomic64_add(*mapped, &tegra_domain->debug_map_bytes);
+	WRITE_ONCE(tegra_domain->debug_last_map_iova, iova);
+	WRITE_ONCE(tegra_domain->debug_last_map_phys, paddr);
+	WRITE_ONCE(tegra_domain->debug_last_map_size, *mapped);
+	WRITE_ONCE(tegra_domain->debug_last_map_ret, ret);
 	if (*mapped && !tegra_domain->debug_work_scheduled) {
 		tegra_domain->debug_work_scheduled = true;
 		schedule_delayed_work(&tegra_domain->debug_work,
@@ -325,8 +380,14 @@ static size_t pkvm_tegra_unmap_pages(struct iommu_domain *domain,
 				     struct iommu_iotlb_gather *gather)
 {
 	struct pkvm_tegra_domain *tegra_domain = to_pkvm_tegra_domain(domain);
+	size_t unmapped;
 
-	return kvm_iommu_unmap_pages(tegra_domain->id, iova, pgsize, pgcount);
+	unmapped = kvm_iommu_unmap_pages(tegra_domain->id, iova, pgsize, pgcount);
+	atomic64_inc(&tegra_domain->debug_unmap_calls);
+	atomic64_add(unmapped, &tegra_domain->debug_unmap_bytes);
+	WRITE_ONCE(tegra_domain->debug_last_unmap_iova, iova);
+	WRITE_ONCE(tegra_domain->debug_last_unmap_size, unmapped);
+	return unmapped;
 }
 
 static phys_addr_t pkvm_tegra_iova_to_phys(struct iommu_domain *domain,
@@ -339,6 +400,7 @@ static void pkvm_tegra_domain_free(struct iommu_domain *domain)
 {
 	struct pkvm_tegra_domain *tegra_domain = to_pkvm_tegra_domain(domain);
 
+	WRITE_ONCE(tegra_domain->debug_work_scheduled, false);
 	cancel_delayed_work_sync(&tegra_domain->debug_work);
 	WARN_ON(kvm_iommu_free_domain(tegra_domain->id));
 	ida_free(&pkvm_tegra_domain_ids, tegra_domain->id);

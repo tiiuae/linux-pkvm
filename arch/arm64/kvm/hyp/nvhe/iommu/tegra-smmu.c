@@ -65,6 +65,20 @@ struct pkvm_tegra_hyp_domain {
 	u16 vmid;
 	u8 cb;
 	u64 debug_iova;
+	u64 debug_map_calls;
+	u64 debug_unmap_calls;
+	u64 debug_map_bytes;
+	u64 debug_unmap_bytes;
+	u64 debug_live_pages;
+	u64 debug_peak_live_pages;
+	u64 debug_last_map_iova;
+	u64 debug_last_map_phys;
+	u64 debug_last_map_size;
+	s64 debug_last_map_ret;
+	u64 debug_last_unmap_iova;
+	u64 debug_last_unmap_phys;
+	u64 debug_last_unmap_size;
+	u64 debug_unmap_failures;
 };
 
 size_t __ro_after_init pkvm_tegra_smmu_count;
@@ -876,6 +890,15 @@ static int tegra_map_pages(struct kvm_hyp_iommu_domain *core_domain,
 			ret = -EIO;
 		}
 	}
+	domain->debug_map_calls++;
+	domain->debug_map_bytes += mapped;
+	domain->debug_live_pages += mapped >> PAGE_SHIFT;
+	domain->debug_peak_live_pages = max(domain->debug_peak_live_pages,
+						    domain->debug_live_pages);
+	domain->debug_last_map_iova = iova;
+	domain->debug_last_map_phys = paddr;
+	domain->debug_last_map_size = mapped;
+	domain->debug_last_map_ret = ret;
 	hyp_spin_unlock(&domain->lock);
 	if (mapped < size)
 		WARN_ON(iommu_pkvm_unuse_dma(paddr + mapped, size - mapped));
@@ -894,10 +917,13 @@ static size_t tegra_unmap_pages(struct kvm_hyp_iommu_domain *core_domain,
 {
 	struct pkvm_tegra_hyp_domain *domain = core_domain->priv;
 	size_t unmapped = 0;
+	size_t requested;
 
 	if (!domain || pgsize != PAGE_SIZE)
 		return 0;
+	requested = pgcount * PAGE_SIZE;
 	hyp_spin_lock(&domain->lock);
+	domain->debug_unmap_calls++;
 	while (pgcount--) {
 		kvm_pte_t pte;
 		s8 level;
@@ -913,9 +939,21 @@ static size_t tegra_unmap_pages(struct kvm_hyp_iommu_domain *core_domain,
 		if (tegra_smmu_flush_vmid(domain->smmu, domain->vmid))
 			break;
 		WARN_ON(iommu_pkvm_unuse_dma(phys, PAGE_SIZE));
+		domain->debug_last_unmap_iova = iova;
+		domain->debug_last_unmap_phys = phys;
+		domain->debug_last_unmap_size = PAGE_SIZE;
 		iova += PAGE_SIZE;
 		unmapped += PAGE_SIZE;
 	}
+	domain->debug_unmap_bytes += unmapped;
+	if (domain->debug_live_pages < unmapped >> PAGE_SHIFT) {
+		domain->debug_live_pages = 0;
+		domain->debug_unmap_failures++;
+	} else {
+		domain->debug_live_pages -= unmapped >> PAGE_SHIFT;
+	}
+	if (unmapped != requested)
+		domain->debug_unmap_failures++;
 	hyp_spin_unlock(&domain->lock);
 	return unmapped;
 }
@@ -1022,6 +1060,30 @@ static int tegra_debug_ats(struct pkvm_tegra_hyp_smmu *smmu,
 	return -ETIMEDOUT;
 }
 
+static int tegra_debug_domain_ats(struct pkvm_tegra_hyp_smmu *smmu,
+				  struct pkvm_tegra_hyp_domain *domain,
+				  unsigned int instance, u64 iova,
+				  u64 *value0, u64 *value1)
+{
+	void __iomem *cb;
+	unsigned int spin;
+
+	if (instance >= smmu->params->num_instances)
+		return -ENOENT;
+	cb = tegra_smmu_cb(smmu, instance, domain->cb);
+	writeq_relaxed(iova & PAGE_MASK, cb + PKVM_SMMU_CB_ATS1PR);
+	for (spin = 0; spin < PKVM_TEGRA_ATS_SPINS; spin++) {
+		if (!(readl_relaxed(cb + PKVM_SMMU_CB_ATSR) &
+		      PKVM_SMMU_CB_ATSR_ACTIVE)) {
+			*value0 = readq_relaxed(cb + PKVM_SMMU_CB_PAR);
+			*value1 = iova;
+			return 0;
+		}
+		cpu_relax();
+	}
+	return -ETIMEDOUT;
+}
+
 static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 			    u64 *value0, u64 *value1)
 {
@@ -1039,7 +1101,6 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 		kvm_pte_t pte;
 		s8 level;
 		unsigned int instance;
-		unsigned int spin;
 
 		if (domain_id >= KVM_IOMMU_MAX_DOMAINS)
 			return -EINVAL;
@@ -1084,22 +1145,9 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 			return 0;
 		case 5:
 		case 6:
-			instance = op - 5;
-			if (instance >= smmu->params->num_instances)
-				return -ENOENT;
-			cb = tegra_smmu_cb(smmu, instance, domain->cb);
-			writeq_relaxed(domain->debug_iova & PAGE_MASK,
-				       cb + PKVM_SMMU_CB_ATS1PR);
-			for (spin = 0; spin < PKVM_TEGRA_ATS_SPINS; spin++) {
-				if (!(readl_relaxed(cb + PKVM_SMMU_CB_ATSR) &
-				      PKVM_SMMU_CB_ATSR_ACTIVE)) {
-					*value0 = readq_relaxed(cb + PKVM_SMMU_CB_PAR);
-					*value1 = domain->debug_iova;
-					return 0;
-				}
-				cpu_relax();
-			}
-			return -ETIMEDOUT;
+			return tegra_debug_domain_ats(smmu, domain, op - 5,
+						      domain->debug_iova,
+						      value0, value1);
 		case 7:
 		case 8:
 			instance = op - 7;
@@ -1148,6 +1196,40 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 					tegra_smmu_page(smmu, 1, 1) +
 					PKVM_SMMU_GR1_CBFRSYNRA(domain->cb));
 			return 0;
+		case 12:
+			*value0 = domain->debug_map_calls;
+			*value1 = domain->debug_unmap_calls;
+			return 0;
+		case 13:
+			*value0 = domain->debug_map_bytes;
+			*value1 = domain->debug_unmap_bytes;
+			return 0;
+		case 14:
+			*value0 = domain->debug_live_pages;
+			*value1 = domain->debug_peak_live_pages;
+			return 0;
+		case 15:
+			*value0 = domain->debug_last_map_iova;
+			*value1 = domain->debug_last_map_phys;
+			return 0;
+		case 16:
+			*value0 = domain->debug_last_map_size;
+			*value1 = domain->debug_last_map_ret;
+			return 0;
+		case 17:
+			*value0 = domain->debug_last_unmap_iova;
+			*value1 = domain->debug_last_unmap_phys;
+			return 0;
+		case 18:
+			*value0 = domain->debug_last_unmap_size;
+			*value1 = domain->debug_unmap_failures;
+			return 0;
+		case 19:
+		case 20:
+			return tegra_debug_domain_ats(
+				smmu, domain, op - 19,
+				domain->debug_last_unmap_iova,
+				value0, value1);
 		default:
 			return -EINVAL;
 		}
