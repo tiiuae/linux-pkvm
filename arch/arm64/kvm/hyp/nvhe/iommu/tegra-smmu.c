@@ -1088,6 +1088,54 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 				cpu_relax();
 			}
 			return -ETIMEDOUT;
+		case 7:
+		case 8:
+			instance = op - 7;
+			if (instance >= smmu->params->num_instances)
+				return -ENOENT;
+			for (i = 0; i < smmu->params->num_mapping_groups; i++) {
+				u32 smr;
+
+				if (!smmu->smr_valid[i] ||
+				    smmu->smr_cb[i] != domain->cb)
+					continue;
+				smr = readl_relaxed(
+					tegra_smmu_page(smmu, instance, 0) +
+					PKVM_SMMU_GR0_SMR(i));
+				*value0 = ((u64)i << 32) | smr;
+				*value1 = readl_relaxed(
+					tegra_smmu_page(smmu, instance, 0) +
+					PKVM_SMMU_GR0_S2CR(i));
+				return 0;
+			}
+			return -ENOENT;
+		case 9:
+		case 10:
+			instance = op - 9;
+			if (instance >= smmu->params->num_instances)
+				return -ENOENT;
+			*value0 = ((u64)readl_relaxed(
+					tegra_smmu_page(smmu, instance, 0) +
+					PKVM_SMMU_GR0_GFSR) << 32) |
+				  readl_relaxed(
+					tegra_smmu_page(smmu, instance, 0) +
+					PKVM_SMMU_GR0_GFSYNR0);
+			*value1 = ((u64)readl_relaxed(
+					tegra_smmu_page(smmu, instance, 0) +
+					PKVM_SMMU_GR0_GFSYNR1) << 32) |
+				  readl_relaxed(
+					tegra_smmu_page(smmu, instance, 0) +
+					PKVM_SMMU_GR0_GFSYNR2);
+			return 0;
+		case 11:
+			*value0 = readl_relaxed(
+				tegra_smmu_page(smmu, 0, 1) +
+				PKVM_SMMU_GR1_CBFRSYNRA(domain->cb));
+			if (smmu->params->num_instances > 1)
+				*value1 = readl_relaxed(
+					tegra_smmu_page(smmu, 1, 1) +
+					PKVM_SMMU_GR1_CBFRSYNRA(domain->cb));
+			return 0;
 		default:
 			return -EINVAL;
 		}

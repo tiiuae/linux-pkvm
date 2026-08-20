@@ -74,8 +74,8 @@ static void pkvm_tegra_debug_workfn(struct work_struct *work)
 {
 	struct pkvm_tegra_domain *domain = container_of(
 		to_delayed_work(work), struct pkvm_tegra_domain, debug_work);
-	u64 value[7][2] = { };
-	int ret[7];
+	u64 value[12][2] = { };
+	int ret[12];
 	int op;
 
 	for (op = 0; op < ARRAY_SIZE(ret); op++)
@@ -280,8 +280,8 @@ static int pkvm_tegra_map_pages(struct iommu_domain *domain,
 				gfp_t gfp, size_t *mapped)
 {
 	struct pkvm_tegra_domain *tegra_domain = to_pkvm_tegra_domain(domain);
-	u64 value[7][2] = { };
-	int debug_ret[7];
+	u64 value[12][2] = { };
+	int debug_ret[12];
 	bool debug;
 	int ret;
 	int op;
