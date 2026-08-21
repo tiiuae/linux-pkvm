@@ -97,6 +97,8 @@ static void __hyp_attach_page(struct hyp_pool *pool,
 	u8 order = p->order;
 	struct hyp_page *buddy;
 
+	pool->free_pages += 1ULL << order;
+
 	memset(hyp_page_to_virt(p), 0, PAGE_SIZE << p->order);
 
 	/* Skip coalescing for 'external' pages being freed into the pool. */
@@ -215,13 +217,20 @@ void *hyp_alloc_pages(struct hyp_pool *pool, u8 order)
 	p = __hyp_extract_page(pool, p, order);
 
 	hyp_set_page_refcounted(p);
+	pool->free_pages -= 1ULL << order;
 	hyp_spin_unlock(&pool->lock);
 
 	return hyp_page_to_virt(p);
 }
 
-int hyp_pool_init(struct hyp_pool *pool, u64 pfn, unsigned int nr_pages,
-		  unsigned int reserved_pages)
+u64 hyp_pool_free_pages(struct hyp_pool *pool)
+{
+	return READ_ONCE(pool->free_pages);
+}
+
+static int __hyp_pool_init(struct hyp_pool *pool, u64 pfn,
+			   unsigned int nr_pages,
+			   unsigned int reserved_pages, bool empty)
 {
 	phys_addr_t phys = hyp_pfn_to_phys(pfn);
 	struct hyp_page *p;
@@ -230,19 +239,34 @@ int hyp_pool_init(struct hyp_pool *pool, u64 pfn, unsigned int nr_pages,
 	hyp_spin_lock_init(&pool->lock);
 	pool->max_order = min(MAX_PAGE_ORDER,
 			      get_order(nr_pages << PAGE_SHIFT));
+	pool->free_pages = 0;
 	for (i = 0; i <= pool->max_order; i++)
 		INIT_LIST_HEAD(&pool->free_area[i]);
+
+	if (empty) {
+		pool->range_start = -1ULL;
+		pool->range_end = 0;
+		return 0;
+	}
+
 	pool->range_start = phys;
 	pool->range_end = phys + (nr_pages << PAGE_SHIFT);
-
-	/* Init the vmemmap portion */
 	p = hyp_phys_to_page(phys);
 	for (i = 0; i < nr_pages; i++)
 		hyp_set_page_refcounted(&p[i]);
-
-	/* Attach the unused pages to the buddy tree */
 	for (i = reserved_pages; i < nr_pages; i++)
 		__hyp_put_page(pool, &p[i]);
 
 	return 0;
+}
+
+int hyp_pool_init(struct hyp_pool *pool, u64 pfn, unsigned int nr_pages,
+		  unsigned int reserved_pages)
+{
+	return __hyp_pool_init(pool, pfn, nr_pages, reserved_pages, false);
+}
+
+int hyp_pool_init_empty(struct hyp_pool *pool, unsigned int nr_pages)
+{
+	return __hyp_pool_init(pool, 0, nr_pages, 0, true);
 }
