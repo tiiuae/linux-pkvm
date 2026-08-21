@@ -384,6 +384,21 @@ config SPRD_IOMMU
 
 	  Say Y here if you want to use the multimedia devices listed above.
 
+config PKVM_PVIOMMU
+	tristate "pKVM pvIOMMU driver"
+	depends on ARM64
+	select IOMMU_API
+	help
+	  Para-virtualised IOMMU driver for pKVM guests.
+
+	  Say Y here if you intend to use assigned devices in a pKVM guest.
+
+config PKVM_PVIOMMU_SELFTEST
+	bool "pKVM pvIOMMU selftest"
+	depends on PKVM_PVIOMMU
+	help
+	  Enable the basic pvIOMMU guest-driver selftest.
+
 config IOMMU_DEBUG_PAGEALLOC
 	bool "Debug IOMMU mappings against page allocations"
 	depends on DEBUG_PAGEALLOC && IOMMU_API && PAGE_EXTENSION
