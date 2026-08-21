@@ -57,6 +57,9 @@
  */
 #define VFIO_UPDATE_VADDR		10
 
+/* pKVM owns the IOMMU and exposes DMA mappings to the protected guest. */
+#define VFIO_PKVM_IOMMU			30
+
 /*
  * The IOCTL interface is designed for extensibility by embedding the
  * structure length (argsz) and flags into structures passed between

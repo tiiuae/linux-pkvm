@@ -1555,6 +1555,18 @@ void vfio_file_set_kvm(struct file *file, struct kvm *kvm)
 }
 EXPORT_SYMBOL_GPL(vfio_file_set_kvm);
 
+/**
+ * vfio_file_get_device - Return the device represented by a VFIO device fd
+ * @file: VFIO device file
+ */
+struct device *vfio_file_get_device(struct file *file)
+{
+	struct vfio_device *device = vfio_device_from_file(file);
+
+	return device ? device->dev : NULL;
+}
+EXPORT_SYMBOL_GPL(vfio_file_get_device);
+
 /*
  * Sub-module support
  */
