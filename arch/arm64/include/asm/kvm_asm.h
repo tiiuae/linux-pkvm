@@ -23,12 +23,14 @@
 #define ARM_EXCEPTION_IL	  3
 /* The hyp-stub will return this for any kvm_call_hyp() call */
 #define ARM_EXCEPTION_HYP_GONE	  HVC_STUB_ERR
+#define ARM_EXCEPTION_HYP_REQ	  5
 
 #define kvm_arm_exception_type					\
 	{ARM_EXCEPTION_IRQ,		"IRQ"		},	\
 	{ARM_EXCEPTION_EL1_SERROR, 	"SERROR"	},	\
 	{ARM_EXCEPTION_TRAP, 		"TRAP"		},	\
-	{ARM_EXCEPTION_HYP_GONE,	"HYP_GONE"	}
+	{ARM_EXCEPTION_HYP_GONE,	"HYP_GONE"	},	\
+	{ARM_EXCEPTION_HYP_REQ,		"HYP_REQ"	}
 
 /*
  * Size of the HYP vectors preamble. kvm_patch_vector_branch() generates code
@@ -89,6 +91,8 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___vgic_v3_restore_vmcr_aprs,
 	__KVM_HOST_SMCCC_FUNC___vgic_v5_save_apr,
 	__KVM_HOST_SMCCC_FUNC___vgic_v5_restore_vmcr_apr,
+	__KVM_HOST_SMCCC_FUNC___pkvm_iommu_register_ops,
+	__KVM_HOST_SMCCC_FUNC___pkvm_devices_init,
 
 	MARKER(__KVM_HOST_SMCCC_FUNC_PKVM_ONLY),
 
@@ -114,6 +118,28 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___pkvm_vcpu_load,
 	__KVM_HOST_SMCCC_FUNC___pkvm_vcpu_put,
 	__KVM_HOST_SMCCC_FUNC___pkvm_tlb_flush_vmid,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_alloc_domain,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_free_domain,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_attach_dev,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_attach_dev_nested,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_detach_dev,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_map_pages,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_unmap_pages,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_iova_to_phys,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_set_identity,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_map_sg,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_iotlb_inv_nested_domain,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_nested_cfg_sync,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_iommu_page_response,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_hvc_pd,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_donate_hyp_mmio,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_reclaim_hyp_mmio,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_map_guest_mmio,
+	__KVM_HOST_SMCCC_FUNC___pkvm_pviommu_attach,
+	__KVM_HOST_SMCCC_FUNC___pkvm_pviommu_add_vsid,
+	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_refill,
+	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_reclaimable,
+	__KVM_HOST_SMCCC_FUNC___pkvm_hyp_alloc_mgt_reclaim,
 
 	MARKER(__KVM_HOST_SMCCC_FUNC_MAX)
 };
