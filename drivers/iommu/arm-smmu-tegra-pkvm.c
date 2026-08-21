@@ -53,6 +53,7 @@ struct pkvm_tegra_domain {
 	struct iommu_domain domain;
 	struct pkvm_tegra_host_smmu *smmu;
 	pkvm_handle_t id;
+	unsigned int debug_maps;
 };
 
 #define to_pkvm_tegra_domain(d) \
@@ -247,9 +248,31 @@ static int pkvm_tegra_map_pages(struct iommu_domain *domain,
 				gfp_t gfp, size_t *mapped)
 {
 	struct pkvm_tegra_domain *tegra_domain = to_pkvm_tegra_domain(domain);
+	u64 value[5][2] = { };
+	int debug_ret[5];
+	int ret;
+	int op;
 
-	return kvm_iommu_map_pages(tegra_domain->id, iova, paddr, pgsize,
-				   pgcount, prot, gfp, mapped);
+	ret = kvm_iommu_map_pages(tegra_domain->id, iova, paddr, pgsize,
+				  pgcount, prot, gfp, mapped);
+	if (tegra_domain->debug_maps++ >= 8)
+		return ret;
+
+	for (op = 0; op < ARRAY_SIZE(debug_ret); op++)
+		debug_ret[op] = kvm_iommu_debug_read(
+			pkvm_tegra_hyp_driver, tegra_domain->smmu->id,
+			PKVM_TEGRA_DEBUG_DOMAIN_SEL(tegra_domain->id, op),
+			&value[op][0], &value[op][1]);
+	pr_err("tegra-pkvm-map: smmu=%llu domain=%llu iova=%#lx pa=%pa pgsize=%zu pgcount=%zu prot=%#x ret=%d mapped=%zu\n",
+	       (unsigned long long)tegra_domain->smmu->id,
+	       (unsigned long long)tegra_domain->id, iova, &paddr,
+	       pgsize, pgcount, prot, ret, *mapped);
+	for (op = 0; op < ARRAY_SIZE(debug_ret); op++)
+		pr_err("tegra-pkvm-map: domain=%llu op=%d ret=%d value0=%#llx value1=%#llx\n",
+		       (unsigned long long)tegra_domain->id, op, debug_ret[op],
+		       (unsigned long long)value[op][0],
+		       (unsigned long long)value[op][1]);
+	return ret;
 }
 
 static size_t pkvm_tegra_unmap_pages(struct iommu_domain *domain,

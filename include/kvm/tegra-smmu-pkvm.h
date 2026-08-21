@@ -13,6 +13,14 @@
 #define PKVM_TEGRA_SMMU_MAX_CONTEXT_BANKS	128
 #define PKVM_TEGRA_SMMU_MAX_SMRS		128
 
+/* Temporary translated-domain diagnostics for the AGX pKVM debug target. */
+#define PKVM_TEGRA_DEBUG_DOMAIN		BIT(31)
+#define PKVM_TEGRA_DEBUG_DOMAIN_OP	GENMASK(19, 16)
+#define PKVM_TEGRA_DEBUG_DOMAIN_ID	GENMASK(15, 0)
+#define PKVM_TEGRA_DEBUG_DOMAIN_SEL(id, op) \
+	(PKVM_TEGRA_DEBUG_DOMAIN | FIELD_PREP(PKVM_TEGRA_DEBUG_DOMAIN_OP, op) | \
+	 FIELD_PREP(PKVM_TEGRA_DEBUG_DOMAIN_ID, id))
+
 struct pkvm_tegra_smmu_device {
 	u64 mmio_addr[PKVM_TEGRA_SMMU_MAX_INSTANCES];
 	u64 mmio_size;
@@ -100,6 +108,8 @@ struct pkvm_tegra_smmu_device {
 #define PKVM_SMMU_VTCR_IRGN0		GENMASK(9, 8)
 #define PKVM_SMMU_VTCR_SL0		GENMASK(7, 6)
 #define PKVM_SMMU_CB_FSR		0x058
+#define PKVM_SMMU_CB_FAR		0x060
+#define PKVM_SMMU_CB_FSYNR0		0x068
 #define PKVM_SMMU_CB_TLBIIPAS2		0x630
 #define PKVM_SMMU_CB_TLBIIPAS2L	0x638
 #define PKVM_SMMU_CB_TLBSYNC		0x7f0

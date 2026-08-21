@@ -63,6 +63,7 @@ struct pkvm_tegra_hyp_domain {
 	hyp_spinlock_t lock;
 	u16 vmid;
 	u8 cb;
+	u64 debug_iova;
 };
 
 size_t __ro_after_init pkvm_tegra_smmu_count;
@@ -71,6 +72,8 @@ struct pkvm_tegra_smmu_device *pkvm_tegra_smmu_devices;
 static struct pkvm_tegra_hyp_smmu
 	tegra_smmus[PKVM_TEGRA_SMMU_MAX_DEVICES];
 static struct pkvm_tegra_hyp_domain tegra_identity_domain;
+static struct pkvm_tegra_hyp_domain
+	*tegra_host_domains[KVM_IOMMU_MAX_HOST_DOMAINS];
 static struct kvm_pgtable_mm_ops tegra_identity_mm_ops;
 static struct kvm_pgtable_mm_ops tegra_domain_mm_ops;
 static bool tegra_noncoherent_walk;
@@ -581,7 +584,8 @@ static int tegra_alloc_domain(pkvm_handle_t iommu_id,
 	unsigned int cb;
 	int ret;
 
-	if (!smmu || type != 1)
+	if (!smmu || type != 1 ||
+	    core_domain->domain_id >= KVM_IOMMU_MAX_HOST_DOMAINS)
 		return -EINVAL;
 	domain = hyp_alloc(sizeof(*domain));
 	if (!domain) {
@@ -612,6 +616,7 @@ static int tegra_alloc_domain(pkvm_handle_t iommu_id,
 		goto err_cb;
 	tegra_program_context(smmu, domain);
 	core_domain->priv = domain;
+	tegra_host_domains[core_domain->domain_id] = domain;
 	return 0;
 
 err_cb:
@@ -646,6 +651,7 @@ static void tegra_free_domain(struct kvm_hyp_iommu_domain *core_domain)
 
 	if (!domain)
 		return;
+	tegra_host_domains[core_domain->domain_id] = NULL;
 	tegra_smmu_cb_write(domain->smmu, domain->cb,
 			    PKVM_SMMU_CB_SCTLR, 0);
 	WARN_ON(tegra_smmu_flush_vmid(domain->smmu, domain->vmid));
@@ -715,6 +721,7 @@ static int tegra_map_pages(struct kvm_hyp_iommu_domain *core_domain,
 		pgt_prot |= KVM_PGTABLE_PROT_DEVICE;
 	if (!pgt_prot)
 		return -EINVAL;
+	domain->debug_iova = iova;
 
 	ret = iommu_pkvm_use_dma(paddr, size);
 	if (ret)
@@ -878,6 +885,58 @@ static int tegra_debug_read(pkvm_handle_t iommu_id, u32 selector,
 
 	if (!smmu)
 		return -ENODEV;
+	if (selector & PKVM_TEGRA_DEBUG_DOMAIN) {
+		u32 domain_id = FIELD_GET(PKVM_TEGRA_DEBUG_DOMAIN_ID,
+					  selector);
+		u32 op = FIELD_GET(PKVM_TEGRA_DEBUG_DOMAIN_OP, selector);
+		kvm_pte_t pte;
+		s8 level;
+
+		if (domain_id >= KVM_IOMMU_MAX_HOST_DOMAINS)
+			return -EINVAL;
+		domain = tegra_host_domains[domain_id];
+		if (!domain || domain->smmu != smmu)
+			return -ENOENT;
+		cb = tegra_smmu_cb(smmu, 0, domain->cb);
+		switch (op) {
+		case 0:
+			*value0 = ((u64)domain->cb << 32) | domain->vmid;
+			*value1 = domain->mmu.pgd_phys;
+			return 0;
+		case 1:
+			*value0 = readl_relaxed(cb + PKVM_SMMU_CB_TCR);
+			*value1 = readq_relaxed(cb + PKVM_SMMU_CB_TTBR0);
+			return 0;
+		case 2:
+			if (kvm_pgtable_get_leaf(&domain->pgt, domain->debug_iova,
+						  &pte, &level))
+				return -ENOENT;
+			*value0 = pte;
+			*value1 = (u64)(u8)level << 56;
+			if (kvm_pte_valid(pte))
+				*value1 |= kvm_pte_to_phys(pte) +
+					(domain->debug_iova &
+					 (kvm_granule_size(level) - 1));
+			return 0;
+		case 3:
+			*value0 = ((u64)readl_relaxed(cb +
+							 PKVM_SMMU_CB_FSR) << 32) |
+				  readl_relaxed(cb + PKVM_SMMU_CB_FSYNR0);
+			*value1 = readq_relaxed(cb + PKVM_SMMU_CB_FAR);
+			return 0;
+		case 4:
+			if (smmu->params->num_instances < 2)
+				return -ENOENT;
+			cb = tegra_smmu_cb(smmu, 1, domain->cb);
+			*value0 = ((u64)readl_relaxed(cb +
+							 PKVM_SMMU_CB_FSR) << 32) |
+				  readl_relaxed(cb + PKVM_SMMU_CB_FSYNR0);
+			*value1 = readq_relaxed(cb + PKVM_SMMU_CB_FAR);
+			return 0;
+		default:
+			return -EINVAL;
+		}
+	}
 	cb = tegra_smmu_cb(smmu, 0, domain->cb);
 	switch (selector) {
 	case 0:
