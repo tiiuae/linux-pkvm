@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: GPL-2.0
+schema: 1
+generation: orin-pkvm-v55
+
+sources:
+  linux:
+    repository: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+    branch: linux-7.1.y
+    tag: v7.1.7
+    tag_object: c8fde2689e91a16e9d4b11fe3b08e45c89870585
+    commit: c7ba9d6de43e9d9bd755b1f3c19501a38898c6b6
+  android:
+    repository: https://android.googlesource.com/kernel/common
+    branch: android17-6.18
+    donor_tip: e5d208fff880b1774013598e50595242fb573ac6
+
+branches:
+  base: base/v7.1.7
+  port: port/android17-pkvm-v7.1.7-r1
+  integration: integration/orin-pkvm-v7.1.7-r1
+  integration_parent: ce9c31f559a956cf4603848329bfa4cc66c29205
+
+port_commits:
+  - id: android-alloc
+    commit: ebf1bc0143fe913fe5fe371182acb4d36d3fe9db
+    status: adapted-multi-source
+    origins: [6ee074eb1224ef707d80c8f014fc833f91389a50, 9f88fce5cbd93f4fdaa028e221b02b557ad24330, c13405a715ea33e0c98f09de394e998cb76f3920, 1effffa4af63c86369efc356b90ee13818ea5e2a, d3feaf96e4769f2ab023db5b98232d85e75634cf]
+  - id: android-iommu
+    commit: 20291c7f73ef6a26a22ca0c58c96e7ec245837a5
+    status: adapted-multi-source
+    origins: [5d6f2785663b8b269740f95e3b0a3fe307d00d97, 50286c4984da14fce29dfbde306d1aea76297361, 540b4b9ce3d89113fee94670cb4ea86abefb6616, a734a0e312b3ee28dda8bc8fe76496d7b9abf577, db3f87c61c2da8d7ba39807e5692ed41e1e45af6, 247011a0ccb858e0a179ddbbfea0ae755cc9fed5]
+  - id: android-device
+    commit: 437045f64dff2b2586cb81a1ddc691ae188b9ebf
+    status: adapted-multi-source
+    origins: [0e3c9e4c4282296e3b2117def6d902f101eae65f, 358f24a8c491d14a33b9e9f73722e9aec610135d, 68c58efb37d3cf2ea869dde71898319d5a200172, 44f9c1036178abf2720c45b6e1d9f4bdeae35799, 22a0449b9663faf02192ad322bb25e665fe84010, b86926ac85dbef17e89c27a82d86d72fc1937cb1]
+  - id: android-pviommu
+    commit: e2b4614bd0c4dd6c51ba7f8d8d9017320dd261f4
+    status: adapted-multi-source
+    origins: [80fccb233cf783ca8bb26e294223a457ea4f8502, 8a9430e18b890b03a13f171c55aec9a70b810a46, 38ab8e61f9813af5659603c2cf6117b37db8b4e6, 9a2496512dbd83ae3513c4a0ea0b9113875cd61b, a71ecadeb8dd41d432733b8e6deac78e4f346a43, a4a6a287e8f574a0d66034dedaf8e5c801eb97a9, 989f5620cfc35146a182912c08d92c4d40355788]
+  - id: android-guest
+    commit: 2d5cb9d361b65c9d263e515a62da0e725d91c005
+    status: adapted-multi-source
+    origins: [9dd94d09198e8d8d739541714a405a730ac6e70f, 3e6bf808c08ba6add70514c64f81c47b8f77aee6, 163ca74cad9c1defcd12241a2a504f627449bab7, 5cc04a2030f839409c418476df609f4dfef10b2f, f185914e777ce0474ecee5a7c793ec7505a884c0, 230765d93d7a05bc6ecccd302404606a7473742d]
+  - id: android-vfio
+    commit: c5d77d0885a302d1f10f0e10837cdd40e7959066
+    status: adapted-multi-source
+    origins: [0ef77a1bee1ef820e09e72dd91bfa9b05abd7c95, 69ea9011bd7d65190890f7c9dc36b757ebbcc28d, e581022df4a3e21d0be8aa581192bc45c4ca021a, b0fccd926d2ee040ec590ca6439db237edf5c247, 89f90d9773f0d5b08bb76a272dfb1364872a0101]
+  - id: android-maple
+    commit: ce9c31f559a956cf4603848329bfa4cc66c29205
+    status: exact
+    origins: [8e7a03dcb9f548113e4b19dbaac28f035944255b]
+
+integration_commits:
+  - {patch: patch-0002, commit: 43a6dc4082173775b91fe5b37f5d5b78c81b81f3, depends_on: [android-iommu, android-device]}
+  - {patch: patch-0003, commit: 7a630934b1059cab36b5911cbd5a0a1471aac470, depends_on: [patch-0002]}
+  - {patch: patch-0004, commit: 63029e75f2668793859b0133ddc59fb358eb2b71, depends_on: [patch-0002, android-device]}
+  - {patch: patch-0005, commit: 92373e6cc3a8c7b1daf5287c5b0c9532f8bd29d5, depends_on: [patch-0002]}
+  - {patch: patch-0006, commit: be1dd0521392d7c8c5dfd529e3a4b379f6854461, depends_on: [patch-0005]}
+  - {patch: patch-0007, commit: a0799e1e8a11a7172cec94c8fe031cd7b7c6fca1, depends_on: [patch-0006]}
+  - {patch: patch-0008, commit: 54735297eb7ef6c3382476c19687f80b10b906f9, depends_on: [patch-0002]}
+  - {patch: patch-0009, commit: 0d896c7610915b2496d90b5c4c210d92d70fa87f, depends_on: [patch-0007]}
+  - {patch: patch-0010, commit: 382816cff1bd55572dc10512e4c90af369a98590, depends_on: [patch-0003]}
+  - {patch: patch-0011, commit: f60c3141275a1bf160298faa7e8d61b8e7503bae, depends_on: [patch-0005]}
+  - {patch: patch-0012, commit: 7a64d93e7ff388e52c9b7592c0df83eef2806739, depends_on: [patch-0011]}
+  - {patch: patch-0013, commit: c3017a90405be4543cb534f8f6ed37df1d806288, depends_on: [patch-0012]}
+  - {patch: patch-0014, commit: 931c719bec9dcf0e237e7bda39a8f61bd6e01423, depends_on: [patch-0013]}
+  - {patch: patch-0015, commit: 5b284863f1e5f422b3f48c800a7a9d5a6f70e936, depends_on: [patch-0014]}
+  - {patch: patch-0016, commit: aae29ca1590125ec2f0f8f6f838c77e6302de468, depends_on: [patch-0015]}
+  - {patch: patch-0017, commit: 52170547b19e16119607363c39be3be333bc28d6, depends_on: [android-alloc]}
+  - {patch: patch-0018, commit: 803566cc92036b90c98075eb1e0b3f10ab359947, depends_on: [patch-0015]}
+  - {patch: patch-0019, commit: b71ab07cbadb92c49cc1ef6fdfc79e70fd11c3a5, depends_on: [patch-0018]}
+  - {patch: patch-0020, commit: 551982537295866fec8c2f3ad713e058ad9346fd, depends_on: [patch-0019]}
+  - {patch: patch-0021, commit: e4e3ce941c54b5ed58ee5da90c146e0d53968857, depends_on: [patch-0013]}
+  - {patch: patch-0022, commit: f2550c08f3571edf6bb56112a5782db4ec4e94ea, depends_on: [patch-0020, patch-0021]}
+  - {patch: patch-0023, commit: 5e8a46224ab582d4da86cc8ebc7d65c5aa04a113, depends_on: [patch-0022]}
+  - {patch: patch-0024, commit: 3e7f9fa837fa234af80cb10390b60489334e03ed, depends_on: [patch-0023]}
+  - {patch: patch-0025, commit: c13d58ac0bbbfa6f7948b98169e52989c73b3c49, depends_on: [patch-0024]}
+  - {patch: patch-0026, commit: 8dacadd1c30a5201a250013cfaa0ccff58bd8055, depends_on: [patch-0025]}
+  - {patch: patch-0027, commit: 0b87958cce6be436928236bd38d772a2784d67c1, depends_on: [patch-0026]}
+  - {patch: patch-0028, commit: 67f10cca75dece2ce616d4203c62adb642ee3cf2, depends_on: [patch-0027]}
+  - {patch: patch-0029, commit: 4b06b54a6427077fa4b6ebf15a14b05bd7e66841, depends_on: [android-vfio]}
+  - {patch: patch-0030, commit: fdade5ddea104ea20f97df2f69edcb33b2bfde4b, depends_on: [android-device]}
+  - {patch: patch-0031, commit: bf62a562290a28a46c9f30f0cf3cbc150e7ff0f5, depends_on: [patch-0029, patch-0030, android-pviommu]}
+  - {patch: patch-0032, commit: 2260ff2e10dcf00d86e9f14f415658590bd1c3a9, status: subsumed, depends_on: [patch-0031]}
+  - {patch: patch-0033, commit: 9f6d8ea55833741fa4ffeb225228dbf52f1a067d, depends_on: [patch-0021]}
+  - {patch: patch-0034, commit: 91a1d2589d38f6e824db21ea053caada0f00ff0d, depends_on: [patch-0004, patch-0031]}
+  - {patch: patch-0035-xusb, commit: adc17b228c1a333330ad3c9e6f820067a3f18718, depends_on: [patch-0015]}
+  - {patch: patch-0035-mgbe, commit: 32fc8f902633d261b00e53af99ad8aaa5b0c6e52, depends_on: [android-guest, patch-0031]}
+  - {patch: patch-0036, commit: 28ab9ccbcef4a76e757c4e7cd4c59dc0e703e3bd, depends_on: [patch-0003, patch-0031]}
+  - {patch: patch-0037, commit: 33217196c26f214fe9d077252d413458f2223d19, depends_on: [patch-0036]}
+  - {patch: patch-0038, commit: 24ad2267ac617e4c8a3449bb5a715299b3fe5c44, depends_on: [patch-0037]}
+  - {patch: patch-0039, commit: 4f2b5df0734adc8f4044d7e2610c4ec57fb0fa40, depends_on: [android-iommu]}
+  - {patch: patch-0040, commit: 07a4fb98fa3ed45f354d9b663fffa1eb7033633a, depends_on: [patch-0038, android-pviommu]}
+  - {patch: patch-0041, commit: a62ea5215093d4595de020d5ae55e2a74d274491, depends_on: [patch-0039, patch-0040]}
+
+ghaf:
+  old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
+  old_head: 6bdd5eaa903c2ca92a959bf0426aea18236b4726
+  old_patch_directory_files: 43
+  consumer_input: linux-pkvm
+  consumer_policy: one-source-commit-host-and-protected-guests
+
+validation:
+  code_oracle_tree: a8184041730181efe06aac7a7a30836e1e45cc6a
+  code_head: a62ea5215093d4595de020d5ae55e2a74d274491
+  code_tree_match: true
+  port_rehearsal_tree_match: true
+  port_rehearsal_range_diff: clean
+  next_stable_rehearsal: v7.1.8
+  next_stable_range_diff: all-equal-except-subsumed-patch-0032
+  generated_host_config_match: pending
+  generated_guest_config_match: pending
+  rebuilt_image: pending
+  runtime_parity: old-stack-v55-only
+  validated_tag: orin-pkvm-v55
