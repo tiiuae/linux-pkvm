@@ -108,8 +108,28 @@ validation:
   port_rehearsal_range_diff: clean
   next_stable_rehearsal: v7.1.8
   next_stable_range_diff: all-equal-except-subsumed-patch-0032
-  generated_host_config_match: pending
-  generated_guest_config_match: pending
-  rebuilt_image: pending
-  runtime_parity: old-stack-v55-only
+  generated_host_config_match: true
+  generated_host_config_sha256: bbc18bf6e28a1486e12b68ff4759cfbe438540db10370faa68483949962a43ca
+  generated_guest_config_match: behavioral-parity
+  rebuilt_image: /nix/store/cyqrbwnmqqhf1zxkbryh5ri0w1aiqpdm-nixos-image-sd-card-26.11.20260807.f13ff45-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+  rebuilt_image_size: 7486197261
+  rebuilt_image_sha256: 162b8c22af9bbc59d6c9d158c99d5224829c31bf0857db5bba48d71c8905ac36
+  runtime_parity: same-board-v55-passed
+  hardware:
+    model: NVIDIA Jetson AGX Orin Developer Kit
+    topo_serial: TOPOED73D35C
+    ecid: 0x80012344705DD3C96C0000000A0081C0
+    usb_instance: 1-1.2.3
+    agx_apx_product: "0955:7023"
+    nx_apx_absent: true
+  runtime_gates:
+    protected_nvhe: true
+    protected_vms: [admin-vm, net-vm, chromium-vm]
+    mgbe_bytes_each_direction: 8589934592
+    mgbe_probes_passed: 800
+    active_dma_teardown: passed
+    settled_netvm_cycles: 3
+    fault_scan: clean-except-existing-netvm-bpmp-boot-warning
+    dma_accounting_failures: 0
   validated_tag: orin-pkvm-v55
+  validated_tag_commit: a62ea5215093d4595de020d5ae55e2a74d274491

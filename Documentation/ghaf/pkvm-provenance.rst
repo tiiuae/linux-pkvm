@@ -150,12 +150,25 @@ Maintenance Procedure
 Validated v55 Boundary
 ======================
 
-The old Ghaf stack built and flashed Linux 7.1.7 to the authorized AGX with
-TOPO serial ``TOPOED73D35C`` and ECID
-``0x80012344705DD3C96C0000000A0081C0``.  Protected nVHE, AdminVM, NetVM,
-ChromiumVM, 8 GiB per physical-MGBE direction, 800 probes, corrected
-active-DMA teardown, and three settled NetVM cycles passed.  Acceptance scans
-found no Maple Tree, pvIOMMU, SLUB, SMMU, watchdog, warning, or panic
-signature.  The external-source migration must reproduce source, generated
-configuration, build, and runtime parity before the rewritten Ghaf PR is
-published.
+Both the old patch stack and the external-source rewrite built and flashed
+Linux 7.1.7 to the same authorized AGX with TOPO serial ``TOPOED73D35C`` and
+ECID ``0x80012344705DD3C96C0000000A0081C0``.  NX APX was absent before the
+new-image flash.  The rebuilt image SHA-256 is
+``162b8c22af9bbc59d6c9d158c99d5224829c31bf0857db5bba48d71c8905ac36``.
+
+The generated host configuration is byte-for-byte equal to the old stack.
+Protected-guest differences are limited to newly visible disabled/default
+symbols; all host and guest kernels use source commit ``a62ea5215093``.
+
+Protected nVHE, AdminVM, NetVM, ChromiumVM, 8 GiB per physical-MGBE
+direction, all 800 probes, corrected active-DMA teardown, and three settled
+NetVM cycles passed on the new image.  AdminVM and ChromiumVM PIDs remained
+unchanged during the lifecycle campaign.  Host, AdminVM, and ChromiumVM fault
+scans were empty.  NetVM retained only its existing boot-time BPMP
+preemption-imbalance warning; no workload or lifecycle Maple Tree, pvIOMMU,
+DMA-unmap, SLUB, SMMU, watchdog, warning, or panic signature appeared.  Both
+protected-DMA domains reported ``failures=0``.
+
+Annotated tag ``orin-pkvm-v55`` points at exact code-parity commit
+``a62ea5215093``.  The integration branch adds provenance documentation after
+that tag; consumers pin the tagged code commit.
