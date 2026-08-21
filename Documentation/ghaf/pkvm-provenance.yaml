@@ -96,8 +96,12 @@ integration_commits:
 ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
   old_head: 6bdd5eaa903c2ca92a959bf0426aea18236b4726
+  archived_old_head: archive/pr2144-pre-kernel-repo-6bdd5eaa
+  rewritten_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
+  pull_request: https://github.com/tiiuae/ghaf/pull/2144
   old_patch_directory_files: 43
   consumer_input: linux-pkvm
+  consumer_pin: a62ea5215093d4595de020d5ae55e2a74d274491
   consumer_policy: one-source-commit-host-and-protected-guests
 
 validation:
@@ -133,3 +137,4 @@ validation:
     dma_accounting_failures: 0
   validated_tag: orin-pkvm-v55
   validated_tag_commit: a62ea5215093d4595de020d5ae55e2a74d274491
+  validated_ghaf_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5

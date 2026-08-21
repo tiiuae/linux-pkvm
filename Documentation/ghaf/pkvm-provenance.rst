@@ -115,6 +115,8 @@ Source Anchors
 * Android donor tip: ``e5d208fff880b1774013598e50595242fb573ac6``
 * Validated old Ghaf head: ``6bdd5eaa903c2ca92a959bf0426aea18236b4726``
 * Validated old Ghaf base: ``87632d714a64ddd63164f354bba9a460a2d700c4``
+* Rewritten Ghaf head: ``7acaec4eafe5768218e3b23a1fd68aa8a2613ca5``
+* Ghaf consumer pin: ``a62ea5215093d4595de020d5ae55e2a74d274491``
 
 Equivalence Contract
 ====================
@@ -171,4 +173,7 @@ protected-DMA domains reported ``failures=0``.
 
 Annotated tag ``orin-pkvm-v55`` points at exact code-parity commit
 ``a62ea5215093``.  The integration branch adds provenance documentation after
-that tag; consumers pin the tagged code commit.
+that tag; consumers pin the tagged code commit.  Ghaf PR #2144 head
+``7acaec4eafe5`` is the validated four-commit consumer rewrite; its old
+``6bdd5eaa903c`` head remains available under the archive ref recorded in the
+manifest.
