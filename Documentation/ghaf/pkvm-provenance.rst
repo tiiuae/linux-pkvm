@@ -103,6 +103,11 @@ minimum evidence that must be refreshed when the row changes.
      - One external ``linux-pkvm`` flake input
      - Shared host/guest package set; config-only differences
      - Source/config/build parity
+   * - ghaf-parent
+     - Ghaf PR #2133, ``7cd0326e6b47``
+     - Four-commit PR #2144 rebase, ``af865a7cf539``
+     - Protected AGX target and service plane
+     - Range-diff, Crosvm check, and full image build
 
 Source Anchors
 ==============
@@ -115,7 +120,9 @@ Source Anchors
 * Android donor tip: ``e5d208fff880b1774013598e50595242fb573ac6``
 * Validated old Ghaf head: ``6bdd5eaa903c2ca92a959bf0426aea18236b4726``
 * Validated old Ghaf base: ``87632d714a64ddd63164f354bba9a460a2d700c4``
-* Rewritten Ghaf head: ``7acaec4eafe5768218e3b23a1fd68aa8a2613ca5``
+* Hardware-validated Ghaf consumer head: ``7acaec4eafe5768218e3b23a1fd68aa8a2613ca5``
+* Current Ghaf PR #2133 parent: ``7cd0326e6b4753d2d49ce9f9f7b3f87cd88a80c7``
+* Current rebased Ghaf head: ``af865a7cf539cf8cf586282342f56d17f9e1f474``
 * Ghaf consumer pin: ``a62ea5215093d4595de020d5ae55e2a74d274491``
 
 Equivalence Contract
@@ -174,6 +181,18 @@ protected-DMA domains reported ``failures=0``.
 Annotated tag ``orin-pkvm-v55`` points at exact code-parity commit
 ``a62ea5215093``.  The integration branch adds provenance documentation after
 that tag; consumers pin the tagged code commit.  Ghaf PR #2144 head
-``7acaec4eafe5`` is the validated four-commit consumer rewrite; its old
-``6bdd5eaa903c`` head remains available under the archive ref recorded in the
-manifest.
+``7acaec4eafe5`` is the hardware-validated four-commit consumer rewrite; its
+old ``6bdd5eaa903c`` head remains available under the archive ref recorded in
+the manifest.
+
+After PR #2125 merged, PR #2144 was rebased onto current PR #2133 head
+``7cd0326e6b47``.  PR #2125 is therefore merged history, not an active
+dependency; PR #2133 is the only live stack dependency.  The rebased consumer
+head ``af865a7cf539`` retains the same kernel pin and passed formatting, REUSE
+lint, the Crosvm platform check, and the full cross-image build.  The built
+image SHA-256 is
+``804eeed004caabb3ccf072dd46ce1d4ac9a26829326286c94e3e3b53a590d686``.
+The subject-only Conventional Commits rewrite from built head
+``106e7ed2328d`` to ``af865a7cf539`` preserved the exact Git tree.  Hardware
+was not reflashed after this parent-only rebase, so ``7acaec4eafe5`` remains
+the recorded hardware-validated Ghaf consumer boundary.

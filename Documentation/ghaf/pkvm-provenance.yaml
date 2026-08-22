@@ -97,8 +97,24 @@ ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
   old_head: 6bdd5eaa903c2ca92a959bf0426aea18236b4726
   archived_old_head: archive/pr2144-pre-kernel-repo-6bdd5eaa
-  rewritten_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
+  rewritten_head: af865a7cf539cf8cf586282342f56d17f9e1f474
+  hardware_validated_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
+  current_parent: 7cd0326e6b4753d2d49ce9f9f7b3f87cd88a80c7
+  archived_pre_rebase_head: archive/pr2144-pre-pr2133-7cd0326-7acaec4e
   pull_request: https://github.com/tiiuae/ghaf/pull/2144
+  dependencies:
+    - id: ghaf-consumer
+      external_commit: a62ea5215093d4595de020d5ae55e2a74d274491
+      adaptation: one-external-input-shared-package-set
+      internal_commit: af865a7cf539cf8cf586282342f56d17f9e1f474
+      gate: source-config-build-parity
+    - id: ghaf-parent
+      external_pull_request: 2133
+      external_commit: 7cd0326e6b4753d2d49ce9f9f7b3f87cd88a80c7
+      adaptation: four-commit-rebase
+      internal_commit: af865a7cf539cf8cf586282342f56d17f9e1f474
+      gate: range-diff-crosvm-check-full-image
+  merged_history_not_dependencies: [2125]
   old_patch_directory_files: 43
   consumer_input: linux-pkvm
   consumer_pin: a62ea5215093d4595de020d5ae55e2a74d274491
@@ -138,3 +154,11 @@ validation:
   validated_tag: orin-pkvm-v55
   validated_tag_commit: a62ea5215093d4595de020d5ae55e2a74d274491
   validated_ghaf_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
+  current_rebased_ghaf_head: af865a7cf539cf8cf586282342f56d17f9e1f474
+  current_rebased_parent: 7cd0326e6b4753d2d49ce9f9f7b3f87cd88a80c7
+  current_rebased_tree_matches_built_head: 106e7ed2328d9811300337e4eaa06e24f91c3fa1
+  current_rebased_checks: [nix-fmt, reuse-lint, crosvm-platform, full-cross-image]
+  current_rebased_image: /nix/store/zr0lm10baaj7l7lcshf6p2qczgwhn7ws-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+  current_rebased_image_size: 7442981671
+  current_rebased_image_sha256: 804eeed004caabb3ccf072dd46ce1d4ac9a26829326286c94e3e3b53a590d686
+  hardware_rerun_after_parent_rebase: false
