@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
-schema: 1
+schema: 2
 generation: orin-pkvm-v55
 
 sources:
@@ -19,6 +19,116 @@ branches:
   port: port/android17-pkvm-v7.1.7-r1
   integration: integration/orin-pkvm-v7.1.7-r1
   integration_parent: ce9c31f559a956cf4603848329bfa4cc66c29205
+
+# Stable IDs shared with the RST dependency table. A dependency change updates
+# this list, the matching RST row, and the applicable validation evidence in
+# one documentation commit.
+dependencies:
+  - id: linux-base
+    external: {owner: linux-stable, ref: v7.1.7, commit: c7ba9d6de43e9d9bd755b1f3c19501a38898c6b6}
+    adaptation: {status: exact-ref, commits: []}
+    internal: {consumer: all-port-and-integration-commits}
+    gate: tag-and-tree-identity
+  - id: android-alloc
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-alloc}
+    adaptation: {status: adapted-multi-source, commit: ebf1bc0143fe913fe5fe371182acb4d36d3fe9db}
+    internal: {consumer: protected-iommu-allocation-and-refill}
+    gate: port-tree-reconstruction
+  - id: android-iommu
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-iommu}
+    adaptation: {status: adapted-multi-source, commit: 20291c7f73ef6a26a22ca0c58c96e7ec245837a5}
+    internal: {consumer: tegra-el2-iommu-backend}
+    gate: host-and-guest-kernel-builds
+  - id: android-device
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-device}
+    adaptation: {status: adapted-multi-source, commit: 437045f64dff2b2586cb81a1ddc691ae188b9ebf}
+    internal: {consumer: mgbe-reset-activation-and-teardown}
+    gate: active-dma-teardown
+  - id: android-pviommu
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-pviommu}
+    adaptation: {status: adapted-multi-source, commit: e2b4614bd0c4dd6c51ba7f8d8d9017320dd261f4}
+    internal: {consumer: raw-sid-export-and-protected-guest-attach}
+    gate: netvm-attach-and-lifecycle
+  - id: android-guest
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-guest}
+    adaptation: {status: adapted-multi-source, commit: 2d5cb9d361b65c9d263e515a62da0e725d91c005}
+    internal: {consumer: netvm-software-iova-mirror}
+    gate: bidirectional-mgbe-soak
+  - id: android-vfio
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-vfio}
+    adaptation: {status: adapted-multi-source, commit: c5d77d0885a302d1f10f0e10837cdd40e7959066}
+    internal: {consumer: vfio-platform-assignment-for-mgbe0}
+    gate: protected-netvm-boot
+  - id: android-maple
+    external: {owner: android-common, commit: 8e7a03dcb9f548113e4b19dbaac28f035944255b}
+    adaptation: {status: exact, commit: ce9c31f559a956cf4603848329bfa4cc66c29205}
+    internal: {consumer: patch-0041-diagnostic-accounting}
+    gate: 8-gib-each-way-and-800-probes
+  - id: orin-smmu
+    external: {owners: [android-common, tegra234-register-contract]}
+    adaptation: {patches: [patch-0002, patch-0003, patch-0004, patch-0005, patch-0006, patch-0007, patch-0008, patch-0009, patch-0010, patch-0011, patch-0012, patch-0013, patch-0014, patch-0015, patch-0016, patch-0017, patch-0018]}
+    internal: {consumer: tegra-smmuv2-el2-ownership-and-host-domains}
+    gate: protected-nvhe-host-boot
+  - id: orin-dma
+    external: {owners: [linux-dma-iommu-apis, android-port-layer]}
+    adaptation: {patches: [patch-0019, patch-0020, patch-0021, patch-0022, patch-0023, patch-0024, patch-0025, patch-0026, patch-0027, patch-0028]}
+    internal: {consumer: translated-and-identity-dma-routing}
+    gate: host-storage-xusb-and-mgbe
+  - id: orin-vfio
+    external: {owners: [linux-vfio-kvm, android-device-lifecycle]}
+    adaptation: {patches: [patch-0029, patch-0030, patch-0031, patch-0032, patch-0033, patch-0034, patch-0035-xusb, patch-0035-mgbe]}
+    internal: {consumer: assigned-device-activation-and-guest-dma-aperture}
+    gate: vm-boot-and-active-teardown
+  - id: orin-streams
+    external: {owners: [tegra-stream-match, pkvm-host-pinning-apis]}
+    adaptation: {patches: [patch-0036, patch-0037, patch-0038, patch-0039, patch-0040, patch-0041]}
+    internal: {consumer: raw-sid-overlapping-pins-and-dma-accounting}
+    gate: clean-host-and-guest-fault-scans
+  - id: ghaf-consumer
+    external: {owner: tiiuae/linux-pkvm, tag: orin-pkvm-v55, commit: a62ea5215093d4595de020d5ae55e2a74d274491}
+    adaptation: {status: one-external-input-shared-package-set}
+    internal: {repository: tiiuae/ghaf, commit: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a}
+    gate: source-config-build-identified-agx-parity
+  - id: ghaf-parent
+    external: {owner: tiiuae/ghaf, pull_request: 2133, commit: 4b9bea29547b459b7af57b6a2aff19630340ad59}
+    adaptation: {status: four-commit-rebase}
+    internal: {pull_request: 2144, commit: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a}
+    gate: range-diff-build-flash-runtime-parity
+  - id: jetpack-pr22
+    external: {owner: tiiuae/jetpack-nixos, pull_request: 22, commit: 9ad43a2697bc3da7e9b4911192607df6541b90e4}
+    adaptation: {status: provider-owned-linux-7.1-bpmp-compatibility}
+    internal: {consumer: agx-external-kernel-package-selection}
+    gate: target-check-full-image-agx-boot
+  - id: microvm-pr586
+    external: {owner: microvm-nix/microvm.nix, pull_request: 586, commit: 0299f2d5faf597795ae78aab064eece23154b2b0}
+    adaptation: {status: provider-owned-protected-vm-and-platform-interfaces}
+    internal: {consumer: ghaf-topology-and-target-policy}
+    gate: provider-and-ghaf-platform-checks
+  - id: ghaf-crosvm-pr12
+    external: {owner: tiiuae/ghaf-crosvm, pull_request: 12, commit: a058cb9d3416ffb57676d5fbd46a9458ed3857ee}
+    adaptation: {status: noiommu-only-extra-vfio-map-all-modes-kvm-memslot}
+    internal: {consumer: protected-mgbe-platform-assignment}
+    gate: crosvm-builds-mgbe-soak-and-lifecycle
+  - id: ghaf-crosvm-create-vm
+    external: {owner: tiiuae/ghaf-crosvm, commit: a058cb9d3416ffb57676d5fbd46a9458ed3857ee}
+    adaptation: {status: ghaf-retained-patch, path: targets/nvidia/jetson-orin/patches/crosvm-upstream-pkvm-create-vm.patch}
+    internal: {consumer: protected-admin-net-and-chromium-vms}
+    gate: target-check-and-three-active-protected-vms
+  - id: ghaf-tfa
+    external: {owner: trusted-firmware-a, selection: jetpack-ghaf}
+    adaptation: {status: ghaf-target-local-firmware-patch}
+    internal: {consumer: agx-protected-host-firmware-integration}
+    gate: full-image-recovery-flash-protected-nvhe
+  - id: ghaf-mgbe-dt
+    external: {owners: [tegra234-dt, orin-pkvm-v55]}
+    adaptation: {status: ghaf-target-local-device-tree-overlay}
+    internal: {consumer: netvm-6800000-ethernet-pkvm-iommu}
+    gate: sid6-soak-teardown-and-settled-cycles
+  - id: ghaf-service-plane
+    external: {dependencies: [microvm-pr586, ghaf-consumer]}
+    adaptation: {status: no-generated-kernel-patch}
+    internal: {consumer: admin-net-chromium-ordering-and-policy}
+    gate: three-protected-vms-and-independent-netvm-recovery
 
 port_commits:
   - id: android-alloc
@@ -97,23 +207,23 @@ ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
   old_head: 6bdd5eaa903c2ca92a959bf0426aea18236b4726
   archived_old_head: archive/pr2144-pre-kernel-repo-6bdd5eaa
-  rewritten_head: af865a7cf539cf8cf586282342f56d17f9e1f474
-  hardware_validated_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
-  current_parent: 7cd0326e6b4753d2d49ce9f9f7b3f87cd88a80c7
-  archived_pre_rebase_head: archive/pr2144-pre-pr2133-7cd0326-7acaec4e
+  rewritten_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+  hardware_validated_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+  current_parent: 4b9bea29547b459b7af57b6a2aff19630340ad59
+  archived_pre_rebase_head: archive/pr2144-pre-pr2133-4b9bea-af865a7c
   pull_request: https://github.com/tiiuae/ghaf/pull/2144
   dependencies:
     - id: ghaf-consumer
       external_commit: a62ea5215093d4595de020d5ae55e2a74d274491
       adaptation: one-external-input-shared-package-set
-      internal_commit: af865a7cf539cf8cf586282342f56d17f9e1f474
-      gate: source-config-build-parity
+      internal_commit: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+      gate: source-config-build-identified-agx-parity
     - id: ghaf-parent
       external_pull_request: 2133
-      external_commit: 7cd0326e6b4753d2d49ce9f9f7b3f87cd88a80c7
+      external_commit: 4b9bea29547b459b7af57b6a2aff19630340ad59
       adaptation: four-commit-rebase
-      internal_commit: af865a7cf539cf8cf586282342f56d17f9e1f474
-      gate: range-diff-crosvm-check-full-image
+      internal_commit: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+      gate: range-diff-build-flash-runtime-parity
   merged_history_not_dependencies: [2125]
   old_patch_directory_files: 43
   consumer_input: linux-pkvm
@@ -153,12 +263,18 @@ validation:
     dma_accounting_failures: 0
   validated_tag: orin-pkvm-v55
   validated_tag_commit: a62ea5215093d4595de020d5ae55e2a74d274491
-  validated_ghaf_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
-  current_rebased_ghaf_head: af865a7cf539cf8cf586282342f56d17f9e1f474
-  current_rebased_parent: 7cd0326e6b4753d2d49ce9f9f7b3f87cd88a80c7
-  current_rebased_tree_matches_built_head: 106e7ed2328d9811300337e4eaa06e24f91c3fa1
-  current_rebased_checks: [nix-fmt, reuse-lint, crosvm-platform, full-cross-image]
-  current_rebased_image: /nix/store/zr0lm10baaj7l7lcshf6p2qczgwhn7ws-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
-  current_rebased_image_size: 7442981671
-  current_rebased_image_sha256: 804eeed004caabb3ccf072dd46ce1d4ac9a26829326286c94e3e3b53a590d686
-  hardware_rerun_after_parent_rebase: false
+  previous_validated_ghaf_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
+  validated_ghaf_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+  current_rebased_ghaf_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+  current_rebased_parent: 4b9bea29547b459b7af57b6a2aff19630340ad59
+  current_rebased_checks: [nix-fmt, reuse-lint, orin-crosvm-targets, microvm-crosvm-platform-devices, crosvm-builds, full-cross-image]
+  current_rebased_image: /nix/store/rq6jz1gxc9gngqfdcdzmk6kx0591j46x-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+  current_rebased_image_size: 8376102724
+  current_rebased_image_sha256: 206840dbca474039b15b8b76541a3219b6bd2ad9fc6450db4aa9227548beef43
+  provider_pins:
+    jetpack_nixos: 9ad43a2697bc3da7e9b4911192607df6541b90e4
+    microvm: 0299f2d5faf597795ae78aab064eece23154b2b0
+    ghaf_crosvm: a058cb9d3416ffb57676d5fbd46a9458ed3857ee
+  hardware_rerun_after_parent_rebase: true
+  active_dma_harness: corrected-pipefail
+  protected_dma_accounting_samples: 311
