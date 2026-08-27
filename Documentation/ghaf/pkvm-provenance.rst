@@ -104,8 +104,8 @@ minimum evidence that must be refreshed when the row changes.
      - Shared host/guest package set; config-only differences
      - Source/config/build/identified-AGX parity
    * - ghaf-parent
-     - Ghaf PR #2133, ``35e8df49f8b4``
-     - Four-commit PR #2144 rebase, ``7a4b163f76b2``
+     - Ghaf PR #2133, ``21e67aebdfad``
+     - Four-commit PR #2144 rebase, ``5effb128640a``
      - Protected AGX target and service plane
      - Range-diff, build, flash, and runtime parity
    * - jetpack-pr22
@@ -160,9 +160,10 @@ Source Anchors
 * Android donor tip: ``e5d208fff880b1774013598e50595242fb573ac6``
 * Validated old Ghaf head: ``6bdd5eaa903c2ca92a959bf0426aea18236b4726``
 * Validated old Ghaf base: ``87632d714a64ddd63164f354bba9a460a2d700c4``
-* Hardware-validated Ghaf consumer head: ``7a4b163f76b2302bea90a32696aa20280bba185d``
-* Current Ghaf PR #2133 parent: ``35e8df49f8b496fa9fea3b930c158da72f003e4d``
-* Current rebased Ghaf head: ``7a4b163f76b2302bea90a32696aa20280bba185d``
+* Hardware-validated Ghaf consumer head: ``5effb128640a185369b678b8d150da617c8b550e``
+* Flashed replay head: ``7a4b163f76b2302bea90a32696aa20280bba185d``
+* Current Ghaf PR #2133 parent: ``21e67aebdfad2a6ae924844c7cfb1901cb651a09``
+* Current rebased Ghaf head: ``5effb128640a185369b678b8d150da617c8b550e``
 * Ghaf consumer pin: ``a62ea5215093d4595de020d5ae55e2a74d274491``
 
 Equivalence Contract
@@ -227,8 +228,8 @@ the manifest.
 
 After PR #2125 merged, it became ordinary history rather than a live
 dependency.  PR #2144 now depends only on PR #2133.  The current four-commit
-consumer is based on PR #2133 head ``35e8df49f8b4`` and ends at
-``7a4b163f76b2``.  It retains the same immutable kernel pin and exact provider
+consumer is based on PR #2133 head ``21e67aebdfad`` and ends at
+``5effb128640a``.  It retains the same immutable kernel pin and exact provider
 pins for Jetpack PR #22 and microvm PR #586.  Its Crosvm source combines
 merged PR #10 at ``63e3c3482553`` with PR #12 at ``aa2478bef075``.
 
@@ -248,12 +249,18 @@ then passed corrected active-DMA teardown and three settled NetVM cycles.
 Categorized host and guest scans found no Maple Tree, pvIOMMU, DMA-unmap,
 SLUB-corruption, SMMU-fault, watchdog, panic, BUG, or Oops lines.  All 311
 protected-DMA accounting samples from the previous generation and all 315
-samples from the current generation reported zero failures.  This makes
-``7a4b163f76b2`` the current hardware-validated Ghaf consumer boundary; the
-immutable kernel tag remains on exact code-parity commit ``a62ea5215093``.
+samples from the current generation reported zero failures.  The current head
+``5effb128640a`` replays the same four patches onto the next
+published PR #2133 head.  Its generated kernel configurations and complete
+image store artifact are byte-identical to the artifact flashed from
+``7a4b163f76b2``.  This makes ``5effb128640a`` the current validated consumer
+boundary without a second destructive flash; the immutable kernel tag remains
+on exact code-parity commit ``a62ea5215093``.
 
-The previous consumer head ``2ab6784e46df`` is preserved as
-``archive/pr2144-pre-pr2133-35e8df-2ab6784e``.  The current range-diff has
-SHA-256 ``2d67a7392ee9e5757e0837e6a84f8f3a0cef4b49eadd377a24cd0ef6b88d40bb``.
+The flashed replay head is preserved as
+``archive/pr2144-pre-pr2133-21e67a-7a4b163f`` and the previous remote consumer
+head remains preserved as ``archive/pr2144-pre-pr2133-35e8df-2ab6784e``.  The
+current range-diff has SHA-256
+``05e83a01250f2a1fe8c0e5978bc21c7af82423e1fd10fe201915aa9091042fe1``.
 The accepted image boots host toplevel ``8y9nrg37ss9k`` and has SHA-256
 ``78ef31acc5072c09ecb5e4b9ef55a4d6f12d39d8349c1965779cb978ece1b85c``.

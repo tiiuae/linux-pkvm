@@ -87,12 +87,12 @@ dependencies:
   - id: ghaf-consumer
     external: {owner: tiiuae/linux-pkvm, tag: orin-pkvm-v55, commit: a62ea5215093d4595de020d5ae55e2a74d274491}
     adaptation: {status: one-external-input-shared-package-set}
-    internal: {repository: tiiuae/ghaf, commit: 7a4b163f76b2302bea90a32696aa20280bba185d}
+    internal: {repository: tiiuae/ghaf, commit: 5effb128640a185369b678b8d150da617c8b550e}
     gate: source-config-build-identified-agx-parity
   - id: ghaf-parent
-    external: {owner: tiiuae/ghaf, pull_request: 2133, commit: 35e8df49f8b496fa9fea3b930c158da72f003e4d}
+    external: {owner: tiiuae/ghaf, pull_request: 2133, commit: 21e67aebdfad2a6ae924844c7cfb1901cb651a09}
     adaptation: {status: four-commit-rebase}
-    internal: {pull_request: 2144, commit: 7a4b163f76b2302bea90a32696aa20280bba185d}
+    internal: {pull_request: 2144, commit: 5effb128640a185369b678b8d150da617c8b550e}
     gate: range-diff-build-flash-runtime-parity
   - id: jetpack-pr22
     external: {owner: tiiuae/jetpack-nixos, pull_request: 22, commit: 9ad43a2697bc3da7e9b4911192607df6541b90e4}
@@ -212,22 +212,23 @@ ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
   old_head: 6bdd5eaa903c2ca92a959bf0426aea18236b4726
   archived_old_head: archive/pr2144-pre-kernel-repo-6bdd5eaa
-  rewritten_head: 7a4b163f76b2302bea90a32696aa20280bba185d
-  hardware_validated_head: 7a4b163f76b2302bea90a32696aa20280bba185d
-  current_parent: 35e8df49f8b496fa9fea3b930c158da72f003e4d
-  archived_pre_rebase_head: archive/pr2144-pre-pr2133-35e8df-2ab6784e
+  rewritten_head: 5effb128640a185369b678b8d150da617c8b550e
+  hardware_validated_head: 5effb128640a185369b678b8d150da617c8b550e
+  flashed_replay_head: 7a4b163f76b2302bea90a32696aa20280bba185d
+  current_parent: 21e67aebdfad2a6ae924844c7cfb1901cb651a09
+  archived_pre_rebase_head: archive/pr2144-pre-pr2133-21e67a-7a4b163f
   pull_request: https://github.com/tiiuae/ghaf/pull/2144
   dependencies:
     - id: ghaf-consumer
       external_commit: a62ea5215093d4595de020d5ae55e2a74d274491
       adaptation: one-external-input-shared-package-set
-      internal_commit: 7a4b163f76b2302bea90a32696aa20280bba185d
+      internal_commit: 5effb128640a185369b678b8d150da617c8b550e
       gate: source-config-build-identified-agx-parity
     - id: ghaf-parent
       external_pull_request: 2133
-      external_commit: 35e8df49f8b496fa9fea3b930c158da72f003e4d
+      external_commit: 21e67aebdfad2a6ae924844c7cfb1901cb651a09
       adaptation: four-commit-rebase
-      internal_commit: 7a4b163f76b2302bea90a32696aa20280bba185d
+      internal_commit: 5effb128640a185369b678b8d150da617c8b550e
       gate: range-diff-build-flash-runtime-parity
   merged_history_not_dependencies: [2125]
   old_patch_directory_files: 43
@@ -272,11 +273,13 @@ validation:
   validated_tag_commit: a62ea5215093d4595de020d5ae55e2a74d274491
   original_validated_ghaf_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
   previous_validated_ghaf_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
-  validated_ghaf_head: 7a4b163f76b2302bea90a32696aa20280bba185d
-  current_rebased_ghaf_head: 7a4b163f76b2302bea90a32696aa20280bba185d
-  current_rebased_parent: 35e8df49f8b496fa9fea3b930c158da72f003e4d
+  validated_ghaf_head: 5effb128640a185369b678b8d150da617c8b550e
+  flashed_replay_ghaf_head: 7a4b163f76b2302bea90a32696aa20280bba185d
+  current_rebased_ghaf_head: 5effb128640a185369b678b8d150da617c8b550e
+  current_rebased_parent: 21e67aebdfad2a6ae924844c7cfb1901cb651a09
   current_rebased_checks: [nix-fmt, reuse-lint, orin-crosvm-targets, crosvm-builds, full-cross-image]
-  current_rebased_range_diff_sha256: 2d67a7392ee9e5757e0837e6a84f8f3a0cef4b49eadd377a24cd0ef6b88d40bb
+  current_rebased_range_diff_sha256: 05e83a01250f2a1fe8c0e5978bc21c7af82423e1fd10fe201915aa9091042fe1
+  artifact_identity_with_flashed_replay: exact
   current_rebased_image: /nix/store/xb9h37f3cpc4bi5422lq8v8iw8fcpb6s-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
   current_rebased_image_size: 8378694838
   current_rebased_image_sha256: 78ef31acc5072c09ecb5e4b9ef55a4d6f12d39d8349c1965779cb978ece1b85c
