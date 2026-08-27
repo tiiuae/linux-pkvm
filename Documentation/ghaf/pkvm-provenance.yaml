@@ -87,12 +87,12 @@ dependencies:
   - id: ghaf-consumer
     external: {owner: tiiuae/linux-pkvm, tag: orin-pkvm-v55, commit: a62ea5215093d4595de020d5ae55e2a74d274491}
     adaptation: {status: one-external-input-shared-package-set}
-    internal: {repository: tiiuae/ghaf, commit: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a}
+    internal: {repository: tiiuae/ghaf, commit: 7a4b163f76b2302bea90a32696aa20280bba185d}
     gate: source-config-build-identified-agx-parity
   - id: ghaf-parent
-    external: {owner: tiiuae/ghaf, pull_request: 2133, commit: 4b9bea29547b459b7af57b6a2aff19630340ad59}
+    external: {owner: tiiuae/ghaf, pull_request: 2133, commit: 35e8df49f8b496fa9fea3b930c158da72f003e4d}
     adaptation: {status: four-commit-rebase}
-    internal: {pull_request: 2144, commit: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a}
+    internal: {pull_request: 2144, commit: 7a4b163f76b2302bea90a32696aa20280bba185d}
     gate: range-diff-build-flash-runtime-parity
   - id: jetpack-pr22
     external: {owner: tiiuae/jetpack-nixos, pull_request: 22, commit: 9ad43a2697bc3da7e9b4911192607df6541b90e4}
@@ -104,13 +104,18 @@ dependencies:
     adaptation: {status: provider-owned-protected-vm-and-platform-interfaces}
     internal: {consumer: ghaf-topology-and-target-policy}
     gate: provider-and-ghaf-platform-checks
+  - id: ghaf-crosvm-pr10
+    external: {owner: tiiuae/ghaf-crosvm, pull_request: 10, reviewed_head: f2f3d2102da1f69dd151221bae13b9046ed79b15, merge_commit: 63e3c3482553212244aec55a3fee5646b37c98bd}
+    adaptation: {status: provider-owned-uas-and-xhci-fixes}
+    internal: {consumer: combined-crosvm-source-baseline, protected_vm_usb: disabled}
+    gate: crosvm-builds-and-full-image-regression
   - id: ghaf-crosvm-pr12
-    external: {owner: tiiuae/ghaf-crosvm, pull_request: 12, commit: a058cb9d3416ffb57676d5fbd46a9458ed3857ee}
-    adaptation: {status: noiommu-only-extra-vfio-map-all-modes-kvm-memslot}
+    external: {owner: tiiuae/ghaf-crosvm, pull_request: 12, commit: aa2478bef0750cc4013f24aa2cda472346db4a93}
+    adaptation: {status: noiommu-only-extra-vfio-map-all-modes-kvm-memslot, stable_patch_id: 398007f2cd35d2920ce7dcbb60633cf4bd16e1de, based_on: 63e3c3482553212244aec55a3fee5646b37c98bd}
     internal: {consumer: protected-mgbe-platform-assignment}
     gate: crosvm-builds-mgbe-soak-and-lifecycle
   - id: ghaf-crosvm-create-vm
-    external: {owner: tiiuae/ghaf-crosvm, commit: a058cb9d3416ffb57676d5fbd46a9458ed3857ee}
+    external: {owner: tiiuae/ghaf-crosvm, commit: aa2478bef0750cc4013f24aa2cda472346db4a93}
     adaptation: {status: ghaf-retained-patch, path: targets/nvidia/jetson-orin/patches/crosvm-upstream-pkvm-create-vm.patch}
     internal: {consumer: protected-admin-net-and-chromium-vms}
     gate: target-check-and-three-active-protected-vms
@@ -207,22 +212,22 @@ ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
   old_head: 6bdd5eaa903c2ca92a959bf0426aea18236b4726
   archived_old_head: archive/pr2144-pre-kernel-repo-6bdd5eaa
-  rewritten_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
-  hardware_validated_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
-  current_parent: 4b9bea29547b459b7af57b6a2aff19630340ad59
-  archived_pre_rebase_head: archive/pr2144-pre-pr2133-4b9bea-af865a7c
+  rewritten_head: 7a4b163f76b2302bea90a32696aa20280bba185d
+  hardware_validated_head: 7a4b163f76b2302bea90a32696aa20280bba185d
+  current_parent: 35e8df49f8b496fa9fea3b930c158da72f003e4d
+  archived_pre_rebase_head: archive/pr2144-pre-pr2133-35e8df-2ab6784e
   pull_request: https://github.com/tiiuae/ghaf/pull/2144
   dependencies:
     - id: ghaf-consumer
       external_commit: a62ea5215093d4595de020d5ae55e2a74d274491
       adaptation: one-external-input-shared-package-set
-      internal_commit: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+      internal_commit: 7a4b163f76b2302bea90a32696aa20280bba185d
       gate: source-config-build-identified-agx-parity
     - id: ghaf-parent
       external_pull_request: 2133
-      external_commit: 4b9bea29547b459b7af57b6a2aff19630340ad59
+      external_commit: 35e8df49f8b496fa9fea3b930c158da72f003e4d
       adaptation: four-commit-rebase
-      internal_commit: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+      internal_commit: 7a4b163f76b2302bea90a32696aa20280bba185d
       gate: range-diff-build-flash-runtime-parity
   merged_history_not_dependencies: [2125]
   old_patch_directory_files: 43
@@ -252,6 +257,8 @@ validation:
     usb_instance: 1-1.2.3
     agx_apx_product: "0955:7023"
     nx_apx_absent: true
+    persistent_rcm_state_preserved: true
+    post_flash_other_agx_apx_not_targeted: 1-1.1.2.1
   runtime_gates:
     protected_nvhe: true
     protected_vms: [admin-vm, net-vm, chromium-vm]
@@ -263,18 +270,27 @@ validation:
     dma_accounting_failures: 0
   validated_tag: orin-pkvm-v55
   validated_tag_commit: a62ea5215093d4595de020d5ae55e2a74d274491
-  previous_validated_ghaf_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
-  validated_ghaf_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
-  current_rebased_ghaf_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
-  current_rebased_parent: 4b9bea29547b459b7af57b6a2aff19630340ad59
-  current_rebased_checks: [nix-fmt, reuse-lint, orin-crosvm-targets, microvm-crosvm-platform-devices, crosvm-builds, full-cross-image]
-  current_rebased_image: /nix/store/rq6jz1gxc9gngqfdcdzmk6kx0591j46x-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
-  current_rebased_image_size: 8376102724
-  current_rebased_image_sha256: 206840dbca474039b15b8b76541a3219b6bd2ad9fc6450db4aa9227548beef43
+  original_validated_ghaf_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
+  previous_validated_ghaf_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+  validated_ghaf_head: 7a4b163f76b2302bea90a32696aa20280bba185d
+  current_rebased_ghaf_head: 7a4b163f76b2302bea90a32696aa20280bba185d
+  current_rebased_parent: 35e8df49f8b496fa9fea3b930c158da72f003e4d
+  current_rebased_checks: [nix-fmt, reuse-lint, orin-crosvm-targets, crosvm-builds, full-cross-image]
+  current_rebased_range_diff_sha256: 2d67a7392ee9e5757e0837e6a84f8f3a0cef4b49eadd377a24cd0ef6b88d40bb
+  current_rebased_image: /nix/store/xb9h37f3cpc4bi5422lq8v8iw8fcpb6s-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+  current_rebased_image_size: 8378694838
+  current_rebased_image_sha256: 78ef31acc5072c09ecb5e4b9ef55a4d6f12d39d8349c1965779cb978ece1b85c
+  current_rebased_deployed_toplevel: /nix/store/8y9nrg37ss9knm2fc84mhpz4zq9g4jxc-nixos-system-ghaf-host-sd-card-26.11.20260819.ffb3c9b
+  current_rebased_generated_config_sha256:
+    host: 19279e899d857e3a25c2e3af4d440143a99eab310334295504b1991b866c82c2
+    admin_vm: b7df8e3c07c548540a7a9a057cefa80f68df053e3b514682f5a9b0922b8c5570
+    net_vm: 3ff5a5ac5acf69eeb26e862d72101c0b13e7fb63a5b9bbf287301b953a37735d
+    chromium_vm: cecf76b58c8732dae1633eeea9e0313982595f69a74ac7d2e108fa57a5a0887f
   provider_pins:
     jetpack_nixos: 9ad43a2697bc3da7e9b4911192607df6541b90e4
     microvm: 0299f2d5faf597795ae78aab064eece23154b2b0
-    ghaf_crosvm: a058cb9d3416ffb57676d5fbd46a9458ed3857ee
+    ghaf_crosvm_pr10_merge: 63e3c3482553212244aec55a3fee5646b37c98bd
+    ghaf_crosvm: aa2478bef0750cc4013f24aa2cda472346db4a93
   hardware_rerun_after_parent_rebase: true
   active_dma_harness: corrected-pipefail
-  protected_dma_accounting_samples: 311
+  protected_dma_accounting_samples: 315

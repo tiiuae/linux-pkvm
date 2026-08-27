@@ -104,8 +104,8 @@ minimum evidence that must be refreshed when the row changes.
      - Shared host/guest package set; config-only differences
      - Source/config/build/identified-AGX parity
    * - ghaf-parent
-     - Ghaf PR #2133, ``4b9bea29547b``
-     - Four-commit PR #2144 rebase, ``2ab6784e46df``
+     - Ghaf PR #2133, ``35e8df49f8b4``
+     - Four-commit PR #2144 rebase, ``7a4b163f76b2``
      - Protected AGX target and service plane
      - Range-diff, build, flash, and runtime parity
    * - jetpack-pr22
@@ -118,13 +118,18 @@ minimum evidence that must be refreshed when the row changes.
      - Provider-owned protected-VM and platform interfaces
      - Ghaf topology and target policy
      - Provider and Ghaf platform checks
+   * - ghaf-crosvm-pr10
+     - ``tiiuae/ghaf-crosvm#10``, merged ``63e3c3482553``
+     - Provider-owned UAS and xHCI fixes; reviewed head ``f2f3d2102da1``
+     - Combined Crosvm source baseline; protected VMs keep USB disabled
+     - Crosvm builds and full-image regression gate
    * - ghaf-crosvm-pr12
-     - ``tiiuae/ghaf-crosvm#12``, ``a058cb9d3416``
+     - ``tiiuae/ghaf-crosvm#12``, ``aa2478bef075``
      - No-IOMMU-only extra VFIO map; KVM memslot in all modes
      - Protected MGBE platform assignment
      - Crosvm builds, MGBE soak, and lifecycle
    * - ghaf-crosvm-create-vm
-     - Crosvm source at ``a058cb9d3416``
+     - Crosvm source at ``aa2478bef075``
      - Ghaf protected-create-VM compatibility patch
      - Protected AdminVM, NetVM, and ChromiumVM
      - Target check and three active protected VMs
@@ -155,9 +160,9 @@ Source Anchors
 * Android donor tip: ``e5d208fff880b1774013598e50595242fb573ac6``
 * Validated old Ghaf head: ``6bdd5eaa903c2ca92a959bf0426aea18236b4726``
 * Validated old Ghaf base: ``87632d714a64ddd63164f354bba9a460a2d700c4``
-* Hardware-validated Ghaf consumer head: ``7acaec4eafe5768218e3b23a1fd68aa8a2613ca5``
-* Current Ghaf PR #2133 parent: ``4b9bea29547b459b7af57b6a2aff19630340ad59``
-* Current rebased Ghaf head: ``2ab6784e46df1e367a47ea4694edd5f9d6d9787a``
+* Hardware-validated Ghaf consumer head: ``7a4b163f76b2302bea90a32696aa20280bba185d``
+* Current Ghaf PR #2133 parent: ``35e8df49f8b496fa9fea3b930c158da72f003e4d``
+* Current rebased Ghaf head: ``7a4b163f76b2302bea90a32696aa20280bba185d``
 * Ghaf consumer pin: ``a62ea5215093d4595de020d5ae55e2a74d274491``
 
 Equivalence Contract
@@ -222,16 +227,19 @@ the manifest.
 
 After PR #2125 merged, it became ordinary history rather than a live
 dependency.  PR #2144 now depends only on PR #2133.  The current four-commit
-consumer is based on PR #2133 head ``4b9bea29547b`` and ends at
-``2ab6784e46df``.  It retains the same immutable kernel pin and adds exact
-provider pins for Jetpack PR #22, microvm PR #586, and ghaf-crosvm PR #12.
+consumer is based on PR #2133 head ``35e8df49f8b4`` and ends at
+``7a4b163f76b2``.  It retains the same immutable kernel pin and exact provider
+pins for Jetpack PR #22 and microvm PR #586.  Its Crosvm source combines
+merged PR #10 at ``63e3c3482553`` with PR #12 at ``aa2478bef075``.
 
 The first canary of this parent generation exposed a Crosvm early-map bug:
 pKVM rejected an extra VFIO DMA mapping before the KVM memslot was installed,
 and NetVM panicked on an MGBE region read.  Ghaf-crosvm PR #12 restricts that
 extra mapping to ``NoIommu`` while retaining the KVM memslot in every mode.
-The accepted image pins exact provider commit ``a058cb9d3416``.  Its SHA-256
-is ``206840dbca474039b15b8b76541a3219b6bd2ad9fc6450db4aa9227548beef43``.
+PR #12 was rebased without content change onto merged PR #10; its stable patch
+ID remains ``398007f2cd35d2920ce7dcbb60633cf4bd16e1de``.  The accepted image
+pins exact combined provider commit ``aa2478bef075``.  Its SHA-256 is
+``78ef31acc5072c09ecb5e4b9ef55a4d6f12d39d8349c1965779cb978ece1b85c``.
 
 That exact image was flashed to the identified AGX after proving NX APX was
 absent.  Protected nVHE and all three protected VMs passed.  The MGBE campaign
@@ -239,6 +247,13 @@ moved 8 GiB in each direction with all 32 streams and 800 probes passing,
 then passed corrected active-DMA teardown and three settled NetVM cycles.
 Categorized host and guest scans found no Maple Tree, pvIOMMU, DMA-unmap,
 SLUB-corruption, SMMU-fault, watchdog, panic, BUG, or Oops lines.  All 311
-protected-DMA accounting samples reported zero failures.  This makes
-``2ab6784e46df`` the current hardware-validated Ghaf consumer boundary; the
+protected-DMA accounting samples from the previous generation and all 315
+samples from the current generation reported zero failures.  This makes
+``7a4b163f76b2`` the current hardware-validated Ghaf consumer boundary; the
 immutable kernel tag remains on exact code-parity commit ``a62ea5215093``.
+
+The previous consumer head ``2ab6784e46df`` is preserved as
+``archive/pr2144-pre-pr2133-35e8df-2ab6784e``.  The current range-diff has
+SHA-256 ``2d67a7392ee9e5757e0837e6a84f8f3a0cef4b49eadd377a24cd0ef6b88d40bb``.
+The accepted image boots host toplevel ``8y9nrg37ss9k`` and has SHA-256
+``78ef31acc5072c09ecb5e4b9ef55a4d6f12d39d8349c1965779cb978ece1b85c``.
