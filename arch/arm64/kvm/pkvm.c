@@ -14,6 +14,7 @@
 #include <linux/mutex.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
+#include <linux/pci.h>
 #include <linux/platform_device.h>
 
 #include <asm/kvm_pkvm.h>
@@ -24,6 +25,7 @@
 DEFINE_STATIC_KEY_FALSE(kvm_protected_mode_initialized);
 
 #define PKVM_DEVICE_ASSIGN_COMPAT "pkvm,device-assignment"
+#define PKVM_PCI_DEVICE_ASSIGN_COMPAT "pkvm,pci-device-assignment"
 
 extern struct pkvm_device *kvm_nvhe_sym(registered_devices);
 extern unsigned long kvm_nvhe_sym(registered_devices_nr);
@@ -363,6 +365,104 @@ static int pkvm_register_device(struct of_phandle_args *args,
 	return 0;
 }
 
+static int pkvm_register_pci_device(struct device_node *np,
+				    struct pkvm_device *dev)
+{
+	struct pci_dev *pdev;
+	pkvm_handle_t iommu_id;
+	u32 domain, bus, devfn, group_id;
+	u32 vendor_id, device_id;
+	unsigned int idx, nr_iommus;
+	int ret;
+
+	ret = of_property_read_u32(np, "pci-domain", &domain);
+	if (ret)
+		return ret;
+	ret = of_property_read_u32(np, "pci-bus", &bus);
+	if (ret)
+		return ret;
+	ret = of_property_read_u32(np, "pci-devfn", &devfn);
+	if (ret)
+		return ret;
+	ret = of_property_read_u32(np, "vendor-id", &vendor_id);
+	if (ret)
+		return ret;
+	ret = of_property_read_u32(np, "device-id", &device_id);
+	if (ret)
+		return ret;
+	ret = of_property_read_u32(np, "group-id", &group_id);
+	if (ret)
+		return ret;
+	if (domain > INT_MAX || bus > U8_MAX || devfn > U8_MAX ||
+	    vendor_id > U16_MAX || device_id > U16_MAX)
+		return -ERANGE;
+
+	pdev = pci_get_domain_bus_and_slot(domain, bus, devfn);
+	if (!pdev)
+		return -ENODEV;
+	if (pdev->vendor != vendor_id || pdev->device != device_id) {
+		ret = -ENODEV;
+		goto out_put_device;
+	}
+
+	for (idx = 0; idx < PCI_STD_NUM_BARS; idx++) {
+		resource_size_t start, size;
+
+		if (!(pci_resource_flags(pdev, idx) & IORESOURCE_MEM))
+			continue;
+		start = pci_resource_start(pdev, idx);
+		size = pci_resource_len(pdev, idx);
+		if (!start || !size)
+			continue;
+		if (dev->nr_resources >= PKVM_DEVICE_MAX_RESOURCE) {
+			ret = -E2BIG;
+			goto out_put_device;
+		}
+		if (!PAGE_ALIGNED(start) || !PAGE_ALIGNED(size)) {
+			ret = -EINVAL;
+			goto out_put_device;
+		}
+		dev->resources[dev->nr_resources].base = start;
+		dev->resources[dev->nr_resources].size = size;
+		dev->nr_resources++;
+	}
+	if (!dev->nr_resources) {
+		ret = -ENODEV;
+		goto out_put_device;
+	}
+
+	ret = kvm_iommu_device_num_ids(&pdev->dev);
+	if (ret < 0)
+		goto out_put_device;
+	nr_iommus = ret;
+	if (!nr_iommus) {
+		ret = -ENODEV;
+		goto out_put_device;
+	}
+	if (nr_iommus > PKVM_DEVICE_MAX_IOMMU) {
+		ret = -E2BIG;
+		goto out_put_device;
+	}
+	for (idx = 0; idx < nr_iommus; idx++) {
+		u32 endpoint;
+
+		ret = kvm_iommu_device_id(&pdev->dev, idx, &iommu_id,
+					  &endpoint);
+		if (ret)
+			goto out_put_device;
+		dev->iommus[idx].id = iommu_id;
+		dev->iommus[idx].endpoint = endpoint;
+	}
+	dev->nr_iommus = nr_iommus;
+	dev->group_id = group_id;
+
+	ret = kvm_iommu_prepare_protected_device(&pdev->dev);
+
+out_put_device:
+	pci_dev_put(pdev);
+	return ret;
+}
+
 static int pkvm_register_protected_devices(void)
 {
 	struct pkvm_device *devices;
@@ -380,6 +480,8 @@ static int pkvm_register_protected_devices(void)
 			of_node_put(args.np);
 		}
 	}
+	for_each_compatible_node(np, NULL, PKVM_PCI_DEVICE_ASSIGN_COMPAT)
+		count++;
 
 	if (!count)
 		return 0;
@@ -402,6 +504,13 @@ static int pkvm_register_protected_devices(void)
 				of_node_put(np);
 				goto free_devices;
 			}
+		}
+	}
+	for_each_compatible_node(np, NULL, PKVM_PCI_DEVICE_ASSIGN_COMPAT) {
+		ret = pkvm_register_pci_device(np, &devices[idx++]);
+		if (ret) {
+			of_node_put(np);
+			goto free_devices;
 		}
 	}
 
