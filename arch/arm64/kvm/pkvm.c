@@ -4,9 +4,13 @@
  * Author: Quentin Perret <qperret@google.com>
  */
 
+#include <linux/delay.h>
 #include <linux/init.h>
+#include <linux/device.h>
 #include <linux/interval_tree_generic.h>
 #include <linux/iommu.h>
+#include <linux/jiffies.h>
+#include <linux/ktime.h>
 #include <linux/kmemleak.h>
 #include <linux/kvm_host.h>
 #include <asm/kvm_mmu.h>
@@ -26,6 +30,8 @@ DEFINE_STATIC_KEY_FALSE(kvm_protected_mode_initialized);
 
 #define PKVM_DEVICE_ASSIGN_COMPAT "pkvm,device-assignment"
 #define PKVM_PCI_DEVICE_ASSIGN_COMPAT "pkvm,pci-device-assignment"
+#define PKVM_PCI_PROBE_TIMEOUT_MS 1000
+#define PKVM_PCI_PROBE_INTERVAL_MS 10
 
 extern struct pkvm_device *kvm_nvhe_sym(registered_devices);
 extern unsigned long kvm_nvhe_sym(registered_devices_nr);
@@ -398,9 +404,15 @@ static int pkvm_register_pci_device(struct device_node *np,
 		return -ERANGE;
 
 	pdev = pci_get_domain_bus_and_slot(domain, bus, devfn);
-	if (!pdev)
+	if (!pdev) {
+		pr_err("Protected PCI device %04x:%02x:%02x.%u is not enumerated\n",
+		       domain, bus, PCI_SLOT(devfn), PCI_FUNC(devfn));
 		return -ENODEV;
+	}
 	if (pdev->vendor != vendor_id || pdev->device != device_id) {
+		pr_err("Protected PCI device %s has ID %04x:%04x, expected %04x:%04x\n",
+		       pci_name(pdev), pdev->vendor, pdev->device,
+		       vendor_id, device_id);
 		ret = -ENODEV;
 		goto out_put_device;
 	}
@@ -427,15 +439,22 @@ static int pkvm_register_pci_device(struct device_node *np,
 		dev->nr_resources++;
 	}
 	if (!dev->nr_resources) {
+		pr_err("Protected PCI device %s has no page-aligned memory BARs\n",
+		       pci_name(pdev));
 		ret = -ENODEV;
 		goto out_put_device;
 	}
 
 	ret = kvm_iommu_device_num_ids(&pdev->dev);
-	if (ret < 0)
+	if (ret < 0) {
+		pr_err("Failed to count IOMMU IDs for protected PCI device %s: %d\n",
+		       pci_name(pdev), ret);
 		goto out_put_device;
+	}
 	nr_iommus = ret;
 	if (!nr_iommus) {
+		pr_err("Protected PCI device %s has no pKVM IOMMU IDs\n",
+		       pci_name(pdev));
 		ret = -ENODEV;
 		goto out_put_device;
 	}
@@ -448,8 +467,11 @@ static int pkvm_register_pci_device(struct device_node *np,
 
 		ret = kvm_iommu_device_id(&pdev->dev, idx, &iommu_id,
 					  &endpoint);
-		if (ret)
+		if (ret) {
+			pr_err("Failed to resolve IOMMU ID %u for protected PCI device %s: %d\n",
+			       idx, pci_name(pdev), ret);
 			goto out_put_device;
+		}
 		dev->iommus[idx].id = iommu_id;
 		dev->iommus[idx].endpoint = endpoint;
 	}
@@ -457,9 +479,104 @@ static int pkvm_register_pci_device(struct device_node *np,
 	dev->group_id = group_id;
 
 	ret = kvm_iommu_prepare_protected_device(&pdev->dev);
+	if (ret)
+		pr_err("Failed to prepare protected PCI device %s: %d\n",
+		       pci_name(pdev), ret);
 
 out_put_device:
 	pci_dev_put(pdev);
+	return ret;
+}
+
+static int __init pkvm_probe_pci_device(struct device_node *assign_np)
+{
+	struct platform_device *pdev;
+	struct pci_dev *pci_dev;
+	struct device_node *np;
+	ktime_t start;
+	unsigned long deadline;
+	u32 domain, bus, devfn, candidate;
+	int ret;
+
+	ret = of_property_read_u32(assign_np, "pci-domain", &domain);
+	if (ret)
+		return ret;
+	ret = of_property_read_u32(assign_np, "pci-bus", &bus);
+	if (ret)
+		return ret;
+	ret = of_property_read_u32(assign_np, "pci-devfn", &devfn);
+	if (ret)
+		return ret;
+	if (domain > INT_MAX || bus > U8_MAX || devfn > U8_MAX)
+		return -ERANGE;
+
+	for_each_node_with_property(np, "linux,pci-domain") {
+		if (of_property_read_u32(np, "linux,pci-domain", &candidate) ||
+		    candidate != domain)
+			continue;
+
+		pdev = of_find_device_by_node(np);
+		if (!pdev) {
+			of_node_put(np);
+			return -ENODEV;
+		}
+
+		/*
+		 * PCI host drivers may prefer asynchronous probing. Request a
+		 * synchronous attach, but do not depend on its return value: driver
+		 * probe failures are intentionally hidden by device_attach(), and an
+		 * already queued asynchronous probe may complete instead. Wait only
+		 * for the protected endpoint to be enumerated, without draining
+		 * unrelated probes and allowing arbitrary DMA before host protection
+		 * is final. The endpoint driver may be modular and is not required for
+		 * pKVM to record the device's BARs and IOMMU identity.
+		 */
+		ret = device_attach(&pdev->dev);
+		put_device(&pdev->dev);
+		of_node_put(np);
+		if (ret < 0 && ret != -EPROBE_DEFER)
+			return ret;
+
+		start = ktime_get();
+		deadline = jiffies + msecs_to_jiffies(PKVM_PCI_PROBE_TIMEOUT_MS);
+		do {
+			pci_dev = pci_get_domain_bus_and_slot(domain, bus, devfn);
+			if (pci_dev) {
+				pci_dev_put(pci_dev);
+				pr_info("Protected PCI device %04x:%02x:%02x.%u enumerated after %lld us\n",
+					domain, bus, PCI_SLOT(devfn),
+					PCI_FUNC(devfn),
+					ktime_us_delta(ktime_get(), start));
+				return 0;
+			}
+			msleep(PKVM_PCI_PROBE_INTERVAL_MS);
+		} while (time_before(jiffies, deadline));
+		pr_err("Protected PCI device %04x:%02x:%02x.%u was not enumerated after %lld us\n",
+		       domain, bus, PCI_SLOT(devfn), PCI_FUNC(devfn),
+		       ktime_us_delta(ktime_get(), start));
+		return -EPROBE_DEFER;
+	}
+
+	return -ENODEV;
+}
+
+static int __init pkvm_probe_protected_pci_hosts(void)
+{
+	struct device_node *np;
+	int ret;
+
+	for_each_compatible_node(np, NULL, PKVM_PCI_DEVICE_ASSIGN_COMPAT) {
+		ret = pkvm_probe_pci_device(np);
+		if (ret) {
+			pr_err("Failed to probe protected PCI device: %d\n", ret);
+			goto out_put_node;
+		}
+	}
+
+	return 0;
+
+out_put_node:
+	of_node_put(np);
 	return ret;
 }
 
@@ -559,6 +676,10 @@ static int __init finalize_pkvm(void)
 	if (ret && ret != -ENODEV)
 		return ret;
 
+	ret = pkvm_probe_protected_pci_hosts();
+	if (ret)
+		return ret;
+
 	ret = pkvm_register_protected_devices();
 	if (ret) {
 		pr_err("Failed to initialize protected devices: %d\n", ret);
@@ -580,7 +701,13 @@ static int __init finalize_pkvm(void)
 
 	return ret;
 }
-device_initcall_sync(finalize_pkvm);
+
+/*
+ * Protected PCI hosts can remain deferred until their late-init suppliers
+ * have probed.  Run after deferred_probe_initcall() has flushed those probes,
+ * but still before init memory is freed and userspace starts.
+ */
+late_initcall_sync(finalize_pkvm);
 
 static u64 __pkvm_mapping_start(struct pkvm_mapping *m)
 {
