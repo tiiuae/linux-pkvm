@@ -44,6 +44,16 @@ menuconfig KVM
 
 if KVM
 
+config IOMMU_POOL_PAGES
+	hex "Number of pages reserved for the pKVM IOMMU pool"
+	depends on IOMMU_SUPPORT
+	default 0x0
+	help
+	  Reserve pages for page tables owned by protected-mode IOMMU
+	  backends. A platform backend may require a non-zero value and can
+	  also size the pool from the kvm-arm.hyp_iommu_pages command line
+	  parameter.
+
 config PTDUMP_STAGE2_DEBUGFS
 	bool "Present the stage-2 pagetables to debugfs"
 	depends on DEBUG_KERNEL

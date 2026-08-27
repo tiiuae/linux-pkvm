@@ -146,6 +146,29 @@ int pkvm_create_mappings(void *from, void *to, enum kvm_pgtable_prot prot)
 	return ret;
 }
 
+unsigned long pkvm_remove_mappings_locked(void *from, void *to)
+{
+	unsigned long size = (unsigned long)to - (unsigned long)from;
+
+	return kvm_pgtable_hyp_unmap(&pkvm_pgtable, (u64)from, size);
+}
+
+void pkvm_remove_mappings(void *from, void *to)
+{
+	unsigned long size = (unsigned long)to - (unsigned long)from;
+
+	hyp_spin_lock(&pkvm_pgd_lock);
+	WARN_ON(pkvm_remove_mappings_locked(from, to) != size);
+	hyp_spin_unlock(&pkvm_pgd_lock);
+}
+
+int __hyp_allocator_map(unsigned long va, phys_addr_t phys)
+{
+	int ret = __pkvm_create_mappings(va, PAGE_SIZE, phys, PAGE_HYP);
+
+	return ret == -ENOMEM ? -EBUSY : ret;
+}
+
 int hyp_back_vmemmap(phys_addr_t back)
 {
 	unsigned long i, start, size, end = 0;
@@ -470,9 +493,10 @@ int pkvm_create_stack(phys_addr_t phys, unsigned long *haddr)
 	return ret;
 }
 
-static void *admit_host_page(void *arg)
+static void *admit_host_page(void *arg, unsigned long order)
 {
 	struct kvm_hyp_memcache *host_mc = arg;
+	unsigned long donated_order;
 
 	if (!host_mc->nr_pages)
 		return NULL;
@@ -483,10 +507,10 @@ static void *admit_host_page(void *arg)
 	 * __pkvm_host_donate_hyp() takes care of races for us, so if it
 	 * succeeds we're good to go.
 	 */
-	if (__pkvm_host_donate_hyp(hyp_phys_to_pfn(host_mc->head), 1))
+	if (order || __pkvm_host_donate_hyp(hyp_phys_to_pfn(host_mc->head), 1))
 		return NULL;
 
-	return pop_hyp_memcache(host_mc, hyp_phys_to_virt);
+	return pop_hyp_memcache(host_mc, hyp_phys_to_virt, &donated_order);
 }
 
 /* Refill our local memcache by popping pages from the one provided by the host. */
@@ -497,8 +521,65 @@ int refill_memcache(struct kvm_hyp_memcache *mc, unsigned long min_pages,
 	int ret;
 
 	ret =  __topup_hyp_memcache(mc, min_pages, admit_host_page,
-				    hyp_virt_to_phys, &tmp);
+				    hyp_virt_to_phys, &tmp, 0);
 	*host_mc = tmp;
 
 	return ret;
+}
+
+phys_addr_t __pkvm_private_range_pa(void *va)
+{
+	kvm_pte_t pte;
+	s8 level;
+
+	hyp_spin_lock(&pkvm_pgd_lock);
+	WARN_ON(kvm_pgtable_get_leaf(&pkvm_pgtable, (u64)va, &pte, &level));
+	hyp_spin_unlock(&pkvm_pgd_lock);
+
+	BUG_ON(!kvm_pte_valid(pte));
+	return kvm_pte_to_phys(pte) + offset_in_page(va);
+}
+
+int refill_hyp_pool(struct hyp_pool *pool,
+		    struct kvm_hyp_memcache *host_mc)
+{
+	struct kvm_hyp_memcache tmp = *host_mc;
+	unsigned long order;
+	void *p;
+
+	while (tmp.nr_pages) {
+		order = FIELD_GET(~PAGE_MASK, tmp.head);
+		if (order > pool->max_order)
+			return -EINVAL;
+
+		p = admit_host_page(&tmp, order);
+		if (IS_ERR_OR_NULL(p))
+			return p ? PTR_ERR(p) : -EINVAL;
+
+		hyp_virt_to_page(p)->refcount = 1;
+		hyp_virt_to_page(p)->order = order;
+		hyp_put_page(pool, p);
+		*host_mc = tmp;
+	}
+
+	return 0;
+}
+
+int reclaim_hyp_pool(struct hyp_pool *pool,
+		     struct kvm_hyp_memcache *host_mc,
+		     int nr_pages, bool force)
+{
+	void *p;
+
+	(void)force;
+	while (nr_pages-- > 0) {
+		p = hyp_alloc_pages(pool, 0);
+		if (!p)
+			return -ENOMEM;
+
+		push_hyp_memcache(host_mc, p, hyp_virt_to_phys, 0);
+		WARN_ON(__pkvm_hyp_donate_host(hyp_virt_to_pfn(p), 1));
+	}
+
+	return 0;
 }

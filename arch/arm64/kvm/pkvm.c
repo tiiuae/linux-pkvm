@@ -6,17 +6,27 @@
 
 #include <linux/init.h>
 #include <linux/interval_tree_generic.h>
+#include <linux/iommu.h>
 #include <linux/kmemleak.h>
 #include <linux/kvm_host.h>
 #include <asm/kvm_mmu.h>
 #include <linux/memblock.h>
 #include <linux/mutex.h>
+#include <linux/of_address.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
 
 #include <asm/kvm_pkvm.h>
+#include <kvm/device.h>
 
 #include "hyp_constants.h"
 
 DEFINE_STATIC_KEY_FALSE(kvm_protected_mode_initialized);
+
+#define PKVM_DEVICE_ASSIGN_COMPAT "pkvm,device-assignment"
+
+extern struct pkvm_device *kvm_nvhe_sym(registered_devices);
+extern unsigned long kvm_nvhe_sym(registered_devices_nr);
 
 static struct memblock_region *hyp_memory = kvm_nvhe_sym(hyp_memory);
 static unsigned int *hyp_memblock_nr_ptr = &kvm_nvhe_sym(hyp_memblock_nr);
@@ -63,6 +73,7 @@ void __init kvm_hyp_reserve(void)
 	hyp_mem_pages += hyp_vmemmap_pages(STRUCT_HYP_PAGE_SIZE);
 	hyp_mem_pages += pkvm_selftest_pages();
 	hyp_mem_pages += hyp_ffa_proxy_pages();
+	hyp_mem_pages += kvm_iommu_pages();
 
 	/*
 	 * Try to allocate a PMD-aligned region to reduce TLB pressure once
@@ -87,6 +98,9 @@ void __init kvm_hyp_reserve(void)
 
 static void __pkvm_destroy_hyp_vm(struct kvm *kvm)
 {
+	struct kvm_vcpu *vcpu;
+	unsigned long idx;
+
 	if (pkvm_hyp_vm_is_created(kvm)) {
 		WARN_ON(kvm_call_hyp_nvhe(__pkvm_finalize_teardown_vm,
 					  kvm->arch.pkvm.handle));
@@ -102,12 +116,24 @@ static void __pkvm_destroy_hyp_vm(struct kvm *kvm)
 	kvm->arch.pkvm.is_created = false;
 	free_hyp_memcache(&kvm->arch.pkvm.teardown_mc);
 	free_hyp_memcache(&kvm->arch.pkvm.stage2_teardown_mc);
+
+	kvm_for_each_vcpu(idx, vcpu, kvm) {
+		struct kvm_hyp_req *hyp_reqs = vcpu->arch.hyp_reqs;
+
+		if (hyp_reqs) {
+			kvm_unshare_hyp(hyp_reqs, hyp_reqs + 1);
+			free_page((unsigned long)hyp_reqs);
+			vcpu->arch.hyp_reqs = NULL;
+		}
+		kvm_iommu_guest_free_mc(&vcpu->arch.iommu_mc);
+	}
 }
 
 static int __pkvm_create_hyp_vcpu(struct kvm_vcpu *vcpu)
 {
 	size_t hyp_vcpu_sz = PAGE_ALIGN(PKVM_HYP_VCPU_SIZE);
 	pkvm_handle_t handle = vcpu->kvm->arch.pkvm.handle;
+	struct kvm_hyp_req *hyp_reqs;
 	void *hyp_vcpu;
 	int ret;
 
@@ -117,11 +143,28 @@ static int __pkvm_create_hyp_vcpu(struct kvm_vcpu *vcpu)
 	if (!hyp_vcpu)
 		return -ENOMEM;
 
+	hyp_reqs = (struct kvm_hyp_req *)__get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!hyp_reqs) {
+		free_pages_exact(hyp_vcpu, hyp_vcpu_sz);
+		return -ENOMEM;
+	}
+
+	ret = kvm_share_hyp(hyp_reqs, hyp_reqs + 1);
+	if (ret)
+		goto free_reqs;
+
+	vcpu->arch.hyp_reqs = hyp_reqs;
+
 	ret = kvm_call_hyp_nvhe(__pkvm_init_vcpu, handle, vcpu, hyp_vcpu);
 	if (!ret)
 		vcpu_set_flag(vcpu, VCPU_PKVM_FINALIZED);
-	else
+	else {
+		kvm_unshare_hyp(hyp_reqs, hyp_reqs + 1);
+		vcpu->arch.hyp_reqs = NULL;
+		free_reqs:
+		free_page((unsigned long)hyp_reqs);
 		free_pages_exact(hyp_vcpu, hyp_vcpu_sz);
+	}
 
 	return ret;
 }
@@ -252,6 +295,129 @@ int pkvm_init_host_vm(struct kvm *kvm, unsigned long type)
 	return 0;
 }
 
+static int pkvm_register_device(struct of_phandle_args *args,
+				struct pkvm_device *dev)
+{
+	struct device_node *np = args->np;
+	struct platform_device *pdev;
+	struct of_phandle_args iommu_spec;
+	u32 group_id = args->args[0];
+	struct resource res;
+	pkvm_handle_t iommu_id;
+	unsigned int idx = 0;
+	int ret;
+
+	while (!of_address_to_resource(np, idx, &res)) {
+		if (idx >= PKVM_DEVICE_MAX_RESOURCE)
+			return -E2BIG;
+		if (!PAGE_ALIGNED(res.start) ||
+		    !PAGE_ALIGNED(resource_size(&res)))
+			return -EINVAL;
+
+		dev->resources[idx].base = res.start;
+		dev->resources[idx].size = resource_size(&res);
+		idx++;
+	}
+	dev->nr_resources = idx;
+
+	idx = 0;
+	while (!of_parse_phandle_with_args(np, "iommus", "#iommu-cells",
+					   idx, &iommu_spec)) {
+		u64 endpoint;
+
+		if (idx >= PKVM_DEVICE_MAX_IOMMU) {
+			of_node_put(iommu_spec.np);
+			return -E2BIG;
+		}
+
+		if (iommu_spec.args_count == 1)
+			endpoint = iommu_spec.args[0];
+		else if (kvm_get_iommu_endpoint(&iommu_spec, &endpoint)) {
+			of_node_put(iommu_spec.np);
+			return -EINVAL;
+		}
+
+		ret = kvm_get_iommu_id_by_of(iommu_spec.np, &iommu_id);
+		if (ret) {
+			of_node_put(iommu_spec.np);
+			return ret;
+		}
+
+		dev->iommus[idx].id = iommu_id;
+		dev->iommus[idx].endpoint = endpoint;
+		of_node_put(iommu_spec.np);
+		idx++;
+	}
+
+	dev->nr_iommus = idx;
+	dev->group_id = group_id;
+
+	pdev = of_find_device_by_node(np);
+	if (!pdev)
+		return -ENODEV;
+	ret = kvm_iommu_prepare_protected_device(&pdev->dev);
+	put_device(&pdev->dev);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int pkvm_register_protected_devices(void)
+{
+	struct pkvm_device *devices;
+	struct device_node *np;
+	size_t devices_size;
+	int count = 0, idx = 0, ret;
+
+	for_each_compatible_node(np, NULL, PKVM_DEVICE_ASSIGN_COMPAT) {
+		struct of_phandle_args args;
+		int entry = 0;
+
+		while (!of_parse_phandle_with_fixed_args(np, "devices", 1,
+						 entry++, &args)) {
+			count++;
+			of_node_put(args.np);
+		}
+	}
+
+	if (!count)
+		return 0;
+
+	devices_size = PAGE_ALIGN(size_mul(sizeof(*devices), count));
+	devices = alloc_pages_exact(devices_size, GFP_KERNEL_ACCOUNT);
+	if (!devices)
+		return -ENOMEM;
+	memset(devices, 0, devices_size);
+
+	for_each_compatible_node(np, NULL, PKVM_DEVICE_ASSIGN_COMPAT) {
+		struct of_phandle_args args;
+		int entry = 0;
+
+		while (!of_parse_phandle_with_fixed_args(np, "devices", 1,
+						 entry++, &args)) {
+			ret = pkvm_register_device(&args, &devices[idx++]);
+			of_node_put(args.np);
+			if (ret) {
+				of_node_put(np);
+				goto free_devices;
+			}
+		}
+	}
+
+	kvm_nvhe_sym(registered_devices_nr) = count;
+	kvm_nvhe_sym(registered_devices) = devices;
+	ret = kvm_call_hyp_nvhe(__pkvm_devices_init);
+	if (!ret)
+		return 0;
+
+free_devices:
+	free_pages_exact(devices, devices_size);
+	kvm_nvhe_sym(registered_devices_nr) = 0;
+	kvm_nvhe_sym(registered_devices) = NULL;
+	return ret;
+}
+
 static void __init _kvm_host_prot_finalize(void *arg)
 {
 	int *err = arg;
@@ -279,6 +445,16 @@ static int __init finalize_pkvm(void)
 
 	if (!is_protected_kvm_enabled() || !is_kvm_arm_initialised())
 		return 0;
+
+	ret = kvm_iommu_init_driver();
+	if (ret && ret != -ENODEV)
+		return ret;
+
+	ret = pkvm_register_protected_devices();
+	if (ret) {
+		pr_err("Failed to initialize protected devices: %d\n", ret);
+		return ret;
+	}
 
 	/*
 	 * Exclude HYP sections from kmemleak so that they don't get peeked
@@ -558,6 +734,195 @@ void pkvm_pgtable_stage2_mkyoung(struct kvm_pgtable *pgt, u64 addr,
 		return;
 
 	WARN_ON(kvm_call_hyp_nvhe(__pkvm_host_mkyoung_guest, addr >> PAGE_SHIFT));
+}
+
+int __pkvm_topup_hyp_alloc_mgt_mc(enum hyp_alloc_mgt_id id,
+				  struct kvm_hyp_memcache *mc)
+{
+	struct arm_smccc_res res;
+	int ret;
+
+	do {
+		res = kvm_call_hyp_nvhe_smccc(__pkvm_hyp_alloc_mgt_refill,
+					      id, mc->head, mc->nr_pages);
+		ret = res.a1;
+		mc->head = res.a3 & PAGE_MASK;
+		mc->nr_pages = res.a3 & ~PAGE_MASK;
+
+		if (!ret)
+			break;
+
+		ret = __pkvm_handle_smccc_req(&res, NULL);
+		if (ret)
+			return ret;
+	} while (1);
+
+	return 0;
+}
+
+int __pkvm_topup_hyp_alloc(unsigned long nr_pages)
+{
+	struct kvm_hyp_memcache mc;
+	int ret;
+
+	init_hyp_memcache(&mc);
+	ret = topup_hyp_memcache(&mc, nr_pages, 0);
+	if (ret)
+		return ret;
+
+	ret = __pkvm_topup_hyp_alloc_mgt_mc(HYP_ALLOC_MGT_HEAP_ID, &mc);
+	if (ret)
+		free_hyp_memcache(&mc);
+
+	return ret;
+}
+EXPORT_SYMBOL(__pkvm_topup_hyp_alloc);
+
+int handle_hyp_req(struct kvm_vcpu *vcpu, struct kvm_hyp_req *req, void *arg)
+{
+	switch (req->type) {
+	case KVM_HYP_REQ_TYPE_HYP_ALLOC:
+		return __pkvm_topup_hyp_alloc(req->mem.nr_pages);
+	case KVM_HYP_REQ_TYPE_MEM_IOMMU:
+		return __pkvm_topup_hyp_iommu(1,
+				req->mem.nr_pages << PAGE_SHIFT,
+				arg ? (gfp_t)(uintptr_t)arg : GFP_KERNEL);
+	case KVM_HYP_REQ_TYPE_MEM:
+		if (!vcpu)
+			return -EINVAL;
+		if (req->memcache.dest == REQ_MEM_DEST_VCPU_MEMCACHE)
+			return topup_hyp_memcache(&vcpu->arch.pkvm_memcache,
+						    req->memcache.nr_pages, 0);
+		if (req->memcache.dest == REQ_MEM_DEST_HYP_IOMMU)
+			return kvm_iommu_guest_alloc_mc(&vcpu->arch.iommu_mc,
+							req->memcache.sz_alloc,
+							req->memcache.nr_pages);
+		return -EINVAL;
+	case KVM_HYP_REQ_TYPE_MAP:
+		if (!vcpu)
+			return -EINVAL;
+		return pkvm_mem_abort_range(vcpu, req->map.guest_ipa,
+					    req->map.size);
+	case KVM_HYP_REQ_TYPE_SPLIT:
+		return -EOPNOTSUPP;
+	case KVM_HYP_LAST_REQ:
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
+int __pkvm_handle_smccc_req(struct arm_smccc_res *res, void *arg)
+{
+	struct kvm_hyp_req req;
+
+	if (smccc_to_hyp_req(&req, res))
+		return handle_hyp_req(NULL, &req, arg);
+
+	return res->a1;
+}
+
+static int pkvm_donate_resource(struct resource *resource)
+{
+	if (!PAGE_ALIGNED(resource->start) ||
+	    !PAGE_ALIGNED(resource_size(resource)))
+		return -EINVAL;
+
+	return kvm_call_hyp_nvhe(__pkvm_host_donate_hyp_mmio,
+				 __phys_to_pfn(resource->start),
+				 resource_size(resource) >> PAGE_SHIFT);
+}
+
+static int pkvm_reclaim_resource(struct resource *resource)
+{
+	if (!PAGE_ALIGNED(resource->start) ||
+	    !PAGE_ALIGNED(resource_size(resource)))
+		return -EINVAL;
+
+	return kvm_call_hyp_nvhe(__pkvm_host_reclaim_hyp_mmio,
+				 __phys_to_pfn(resource->start),
+				 resource_size(resource) >> PAGE_SHIFT);
+}
+
+static int pkvm_assign_platform_device(struct device *dev, void *data)
+{
+	struct platform_device *pdev;
+	struct resource *resource;
+	int index = 0;
+	int ret;
+
+	if (!dev_is_platform(dev))
+		return -EOPNOTSUPP;
+
+	pdev = to_platform_device(dev);
+	while ((resource = platform_get_resource(pdev, IORESOURCE_MEM, index))) {
+		ret = pkvm_donate_resource(resource);
+		if (ret)
+			goto err_reclaim;
+		index++;
+	}
+
+	return 0;
+
+err_reclaim:
+	while (index--)
+		pkvm_reclaim_resource(platform_get_resource(pdev, IORESOURCE_MEM,
+						    index));
+
+	return ret;
+}
+
+static int pkvm_reclaim_platform_device(struct device *dev, void *data)
+{
+	struct platform_device *pdev;
+	struct resource *resource;
+	int index = 0;
+
+	if (!dev_is_platform(dev))
+		return -EOPNOTSUPP;
+
+	pdev = to_platform_device(dev);
+	while ((resource = platform_get_resource(pdev, IORESOURCE_MEM, index++)))
+		pkvm_reclaim_resource(resource);
+
+	return 0;
+}
+
+int kvm_arch_assign_device(struct device *dev)
+{
+	if (!is_protected_kvm_enabled())
+		return 0;
+
+	return pkvm_assign_platform_device(dev, NULL);
+}
+
+int kvm_arch_assign_group(struct iommu_group *group)
+{
+	int ret;
+
+	if (!is_protected_kvm_enabled())
+		return 0;
+
+	ret = iommu_group_for_each_dev(group, NULL,
+				       pkvm_assign_platform_device);
+	if (ret)
+		iommu_group_for_each_dev(group, NULL,
+					 pkvm_reclaim_platform_device);
+
+	return ret;
+}
+
+void kvm_arch_reclaim_device(struct device *dev)
+{
+	if (is_protected_kvm_enabled())
+		pkvm_reclaim_platform_device(dev, NULL);
+}
+
+void kvm_arch_reclaim_group(struct iommu_group *group)
+{
+	if (is_protected_kvm_enabled())
+		iommu_group_for_each_dev(group, NULL,
+					 pkvm_reclaim_platform_device);
 }
 
 void pkvm_pgtable_stage2_free_unlinked(struct kvm_pgtable_mm_ops *mm_ops, void *pgtable, s8 level)

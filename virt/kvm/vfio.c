@@ -6,6 +6,7 @@
  *     Author: Alex Williamson <alex.williamson@redhat.com>
  */
 
+#include <linux/anon_inodes.h>
 #include <linux/errno.h>
 #include <linux/file.h>
 #include <linux/kvm_host.h>
@@ -34,6 +35,13 @@ struct kvm_vfio {
 	struct mutex lock;
 	bool noncoherent;
 };
+
+#ifdef CONFIG_VFIO_PKVM_IOMMU
+struct kvm_pviommu {
+	struct kvm *kvm;
+	int fd;
+};
+#endif
 
 static void kvm_vfio_file_set_kvm(struct file *file, struct kvm *kvm)
 {
@@ -80,7 +88,21 @@ static bool kvm_vfio_file_is_valid(struct file *file)
 	return ret;
 }
 
-#ifdef CONFIG_SPAPR_TCE_IOMMU
+static struct device *kvm_vfio_file_get_device(struct file *file)
+{
+	struct device *(*fn)(struct file *file);
+	struct device *dev;
+
+	fn = symbol_get(vfio_file_get_device);
+	if (!fn)
+		return NULL;
+
+	dev = fn(file);
+	symbol_put(vfio_file_get_device);
+
+	return dev;
+}
+
 static struct iommu_group *kvm_vfio_file_iommu_group(struct file *file)
 {
 	struct iommu_group *(*fn)(struct file *file);
@@ -97,6 +119,7 @@ static struct iommu_group *kvm_vfio_file_iommu_group(struct file *file)
 	return ret;
 }
 
+#ifdef CONFIG_SPAPR_TCE_IOMMU
 static void kvm_spapr_tce_release_vfio_group(struct kvm *kvm,
 					     struct kvm_vfio_file *kvf)
 {
@@ -140,6 +163,38 @@ static void kvm_vfio_update_coherency(struct kvm_device *dev)
 	}
 }
 
+static int kvm_vfio_assign_file(struct file *file)
+{
+	struct device *dev;
+	struct iommu_group *group;
+
+	dev = kvm_vfio_file_get_device(file);
+	if (dev)
+		return kvm_arch_assign_device(dev);
+
+	group = kvm_vfio_file_iommu_group(file);
+	if (group)
+		return kvm_arch_assign_group(group);
+
+	return -ENODEV;
+}
+
+static void kvm_vfio_reclaim_file(struct file *file)
+{
+	struct device *dev;
+	struct iommu_group *group;
+
+	dev = kvm_vfio_file_get_device(file);
+	if (dev) {
+		kvm_arch_reclaim_device(dev);
+		return;
+	}
+
+	group = kvm_vfio_file_iommu_group(file);
+	if (group)
+		kvm_arch_reclaim_group(group);
+}
+
 static int kvm_vfio_file_add(struct kvm_device *dev, unsigned int fd)
 {
 	struct kvm_vfio *kv = dev->private;
@@ -172,12 +227,19 @@ static int kvm_vfio_file_add(struct kvm_device *dev, unsigned int fd)
 		goto out_unlock;
 	}
 
+	ret = kvm_vfio_assign_file(filp);
+	if (ret)
+		goto out_free;
+
 	kvf->file = get_file(filp);
 	list_add_tail(&kvf->node, &kv->file_list);
 
 	kvm_vfio_file_set_kvm(kvf->file, dev->kvm);
 	kvm_vfio_update_coherency(dev);
 
+out_free:
+	if (ret)
+		kfree(kvf);
 out_unlock:
 	mutex_unlock(&kv->lock);
 out_fput:
@@ -203,6 +265,7 @@ static int kvm_vfio_file_del(struct kvm_device *dev, unsigned int fd)
 		if (kvf->file != fd_file(f))
 			continue;
 
+		kvm_vfio_reclaim_file(kvf->file);
 		list_del(&kvf->node);
 #ifdef CONFIG_SPAPR_TCE_IOMMU
 		kvm_spapr_tce_release_vfio_group(dev->kvm, kvf);
@@ -289,6 +352,193 @@ static int kvm_vfio_set_file(struct kvm_device *dev, long attr,
 	return -ENXIO;
 }
 
+#ifdef CONFIG_VFIO_PKVM_IOMMU
+static int kvm_vfio_pviommu_set_config(struct file *file,
+				       struct kvm_vfio_iommu_config *config)
+{
+	struct kvm_pviommu *pviommu = file->private_data;
+	pkvm_handle_t iommu;
+	struct device *dev;
+	struct file *vfio_file;
+	u32 physical_sid;
+	int ret;
+
+	if (config->__reserved)
+		return -EINVAL;
+
+	vfio_file = fget(config->device_fd);
+	if (!vfio_file)
+		return -EBADF;
+
+	dev = kvm_vfio_file_get_device(vfio_file);
+	if (!dev) {
+		ret = -ENODEV;
+		goto out_fput;
+	}
+
+	ret = kvm_iommu_device_id(dev, config->sid_idx, &iommu,
+				  &physical_sid);
+	if (ret)
+		goto out_fput;
+
+	ret = kvm_call_hyp_nvhe(__pkvm_pviommu_add_vsid, pviommu->kvm,
+				pviommu->fd, iommu, physical_sid,
+				config->vsid);
+
+out_fput:
+	fput(vfio_file);
+	return ret;
+}
+
+static long pviommufd_ioctl(struct file *file, unsigned int ioctl,
+			    unsigned long arg)
+{
+	void __user *argp = (void __user *)arg;
+	struct kvm_vfio_iommu_config config;
+	__u32 usize;
+
+	switch (ioctl) {
+	case KVM_PVIOMMU_SET_CONFIG:
+		if (copy_from_user(&usize, argp, sizeof(usize)))
+			return -EFAULT;
+		if (usize < offsetofend(struct kvm_vfio_iommu_config,
+					 __reserved))
+			return -EINVAL;
+		if (copy_struct_from_user(&config, sizeof(config), argp, usize))
+			return -EFAULT;
+
+		return kvm_vfio_pviommu_set_config(file, &config);
+	default:
+		return -ENXIO;
+	}
+}
+
+static int pviommufd_release(struct inode *inode, struct file *file)
+{
+	struct kvm_pviommu *pviommu = file->private_data;
+
+	kvm_put_kvm(pviommu->kvm);
+	kfree(pviommu);
+
+	return 0;
+}
+
+static const struct file_operations pviommu_fops = {
+	.owner = THIS_MODULE,
+	.unlocked_ioctl = pviommufd_ioctl,
+	.release = pviommufd_release,
+	.llseek = noop_llseek,
+};
+
+static int kvm_vfio_pviommu_attach(struct kvm_device *dev)
+{
+	struct kvm_pviommu *pviommu;
+	struct file *file;
+	int fd;
+	int ret;
+
+	if (!kvm_vm_is_protected(dev->kvm))
+		return -EINVAL;
+
+	pviommu = kzalloc_obj(*pviommu, GFP_KERNEL_ACCOUNT);
+	if (!pviommu)
+		return -ENOMEM;
+
+	pviommu->kvm = dev->kvm;
+	kvm_get_kvm(dev->kvm);
+
+	file = anon_inode_getfile("kvm-pviommu", &pviommu_fops, pviommu,
+				  O_CLOEXEC);
+	if (IS_ERR(file)) {
+		ret = PTR_ERR(file);
+		goto out_put_kvm;
+	}
+
+	fd = get_unused_fd_flags(O_CLOEXEC);
+	if (fd < 0) {
+		ret = fd;
+		goto out_fput;
+	}
+
+	ret = kvm_call_hyp_nvhe(__pkvm_pviommu_attach, dev->kvm, fd);
+	if (ret)
+		goto out_put_fd;
+
+	pviommu->fd = fd;
+	fd_install(fd, file);
+
+	return fd;
+
+out_put_fd:
+	put_unused_fd(fd);
+out_fput:
+	fput(file);
+	return ret;
+out_put_kvm:
+	kvm_put_kvm(dev->kvm);
+	kfree(pviommu);
+	return ret;
+}
+
+static int kvm_vfio_pviommu_get_info(struct kvm_vfio_iommu_info *info)
+{
+	struct device *dev;
+	struct file *file;
+	int ret = 0;
+
+	if (info->__reserved)
+		return -EINVAL;
+
+	file = fget(info->device_fd);
+	if (!file)
+		return -EBADF;
+
+	dev = kvm_vfio_file_get_device(file);
+	if (!dev) {
+		ret = -ENODEV;
+		goto out_fput;
+	}
+
+	info->out_nr_sids = kvm_iommu_device_num_ids(dev);
+	if (!info->out_nr_sids)
+		ret = -ENODEV;
+
+out_fput:
+	fput(file);
+	return ret;
+}
+
+static int kvm_vfio_pviommu(struct kvm_device *dev, long attr,
+			    void __user *arg)
+{
+	struct kvm_vfio_iommu_info info;
+	__u32 usize;
+	int ret;
+
+	switch (attr) {
+	case KVM_DEV_VFIO_PVIOMMU_ATTACH:
+		return kvm_vfio_pviommu_attach(dev);
+	case KVM_DEV_VFIO_PVIOMMU_GET_INFO:
+		if (copy_from_user(&usize, arg, sizeof(usize)))
+			return -EFAULT;
+		if (usize < offsetofend(struct kvm_vfio_iommu_info,
+					 __reserved))
+			return -EINVAL;
+		if (copy_struct_from_user(&info, sizeof(info), arg, usize))
+			return -EFAULT;
+
+		ret = kvm_vfio_pviommu_get_info(&info);
+		if (ret)
+			return ret;
+
+		return copy_struct_to_user(arg, usize, &info, sizeof(info),
+					   NULL);
+	default:
+		return -ENXIO;
+	}
+}
+#endif
+
 static int kvm_vfio_set_attr(struct kvm_device *dev,
 			     struct kvm_device_attr *attr)
 {
@@ -296,6 +546,11 @@ static int kvm_vfio_set_attr(struct kvm_device *dev,
 	case KVM_DEV_VFIO_FILE:
 		return kvm_vfio_set_file(dev, attr->attr,
 					 u64_to_user_ptr(attr->addr));
+#ifdef CONFIG_VFIO_PKVM_IOMMU
+	case KVM_DEV_VFIO_PVIOMMU:
+		return kvm_vfio_pviommu(dev, attr->attr,
+					u64_to_user_ptr(attr->addr));
+#endif
 	}
 
 	return -ENXIO;
@@ -316,6 +571,16 @@ static int kvm_vfio_has_attr(struct kvm_device *dev,
 		}
 
 		break;
+#ifdef CONFIG_VFIO_PKVM_IOMMU
+	case KVM_DEV_VFIO_PVIOMMU:
+		switch (attr->attr) {
+		case KVM_DEV_VFIO_PVIOMMU_ATTACH:
+		case KVM_DEV_VFIO_PVIOMMU_GET_INFO:
+			return 0;
+		}
+
+		break;
+#endif
 	}
 
 	return -ENXIO;
@@ -330,6 +595,7 @@ static void kvm_vfio_release(struct kvm_device *dev)
 #ifdef CONFIG_SPAPR_TCE_IOMMU
 		kvm_spapr_tce_release_vfio_group(dev->kvm, kvf);
 #endif
+		kvm_vfio_reclaim_file(kvf->file);
 		kvm_vfio_file_set_kvm(kvf->file, NULL);
 		fput(kvf->file);
 		list_del(&kvf->node);

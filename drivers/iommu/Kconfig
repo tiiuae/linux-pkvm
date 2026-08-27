@@ -384,6 +384,36 @@ config SPRD_IOMMU
 
 	  Say Y here if you want to use the multimedia devices listed above.
 
+config PKVM_PVIOMMU
+	tristate "pKVM pvIOMMU driver"
+	depends on ARM64
+	select IOMMU_API
+	help
+	  Para-virtualised IOMMU driver for pKVM guests.
+
+	  Say Y here if you intend to use assigned devices in a pKVM guest.
+
+config PKVM_PVIOMMU_SELFTEST
+	bool "pKVM pvIOMMU selftest"
+	depends on PKVM_PVIOMMU
+	help
+	  Enable the basic pvIOMMU guest-driver selftest.
+
+config ARM_SMMU_TEGRA_PKVM
+	bool "Tegra234 SMMUv2 backend for protected KVM"
+	depends on ARM64 && ARCH_TEGRA && KVM
+	depends on !ARM_SMMU
+	select IOMMU_API
+	select IOMMU_DMA
+	select PKVM_PVIOMMU
+	help
+	  Let protected KVM own all NVIDIA Tegra234 MMU-500 instances and
+	  expose host-side IOMMU operations through hypercalls. This backend
+	  is intentionally incompatible with the normal ARM SMMU driver.
+
+	  This is an experimental, fail-closed backend for protected device
+	  assignment on NVIDIA Jetson Orin.
+
 config IOMMU_DEBUG_PAGEALLOC
 	bool "Debug IOMMU mappings against page allocations"
 	depends on DEBUG_PAGEALLOC && IOMMU_API && PAGE_EXTENSION

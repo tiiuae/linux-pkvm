@@ -6,6 +6,8 @@
 
 #include <hyp/adjust_pc.h>
 #include <hyp/switch.h>
+#include <kvm/arm_hypercalls.h>
+#include <kvm/device.h>
 
 #include <asm/pgtable-types.h>
 #include <asm/kvm_asm.h>
@@ -15,14 +17,20 @@
 #include <asm/kvm_hypevents.h>
 #include <asm/kvm_mmu.h>
 
+#include <nvhe/alloc.h>
+#include <nvhe/alloc_mgt.h>
+#include <nvhe/errno.h>
 #include <nvhe/ffa.h>
+#include <nvhe/iommu.h>
 #include <nvhe/mem_protect.h>
 #include <nvhe/mm.h>
 #include <nvhe/pkvm.h>
+#include <nvhe/pviommu-host.h>
 #include <nvhe/trace.h>
 #include <nvhe/trap_handler.h>
 
 DEFINE_PER_CPU(struct kvm_nvhe_init_params, kvm_init_params);
+DEFINE_PER_CPU(struct kvm_hyp_req, host_hyp_reqs);
 
 /* Number of implemented GICv3 LRs. Used by flush_hyp_vcpu(). */
 unsigned int hyp_gicv3_nr_lr;
@@ -125,6 +133,10 @@ static void sync_debug_state(struct pkvm_hyp_vcpu *hyp_vcpu)
 static void flush_hyp_vcpu(struct pkvm_hyp_vcpu *hyp_vcpu)
 {
 	struct kvm_vcpu *host_vcpu = hyp_vcpu->host_vcpu;
+	struct kvm_hyp_req *req = hyp_vcpu->vcpu.arch.hyp_reqs;
+
+	if (req)
+		req->type = KVM_HYP_LAST_REQ;
 
 	fpsimd_sve_flush();
 	flush_debug_state(hyp_vcpu);
@@ -152,6 +164,10 @@ static void flush_hyp_vcpu(struct pkvm_hyp_vcpu *hyp_vcpu)
 		      hyp_gicv3_nr_lr);
 
 	hyp_vcpu->vcpu.arch.pid = host_vcpu->arch.pid;
+
+	if (smccc_get_function(&hyp_vcpu->vcpu) ==
+	    ARM_SMCCC_VENDOR_HYP_KVM_DEV_REQ_PWR_FUNC_ID)
+		pkvm_device_request_power_pvm_entry(hyp_vcpu);
 }
 
 static void sync_hyp_vcpu(struct pkvm_hyp_vcpu *hyp_vcpu)
@@ -489,6 +505,28 @@ static void handle___vgic_v3_restore_vmcr_aprs(struct kvm_cpu_context *host_ctxt
 	__vgic_v3_restore_vmcr_aprs(kern_hyp_va(cpu_if));
 }
 
+static void this_cpu_hyp_req_to_smccc(u64 a1,
+				      struct kvm_cpu_context *host_ctxt)
+{
+	struct kvm_hyp_req *req = this_cpu_ptr(&host_hyp_reqs);
+
+	cpu_reg(host_ctxt, 1) = a1;
+	hyp_req_to_smccc(host_ctxt, req);
+	req->type = KVM_HYP_LAST_REQ;
+}
+
+static void errno_to_smccc(int ret, struct kvm_cpu_context *host_ctxt)
+{
+	struct kvm_hyp_req *req = this_cpu_ptr(&host_hyp_reqs);
+
+	if (ret == -ENOMEMHYPALLOC) {
+		req->type = KVM_HYP_REQ_TYPE_HYP_ALLOC;
+		req->mem.nr_pages = hyp_alloc_missing_donations();
+	}
+
+	this_cpu_hyp_req_to_smccc(ret, host_ctxt);
+}
+
 static void handle___pkvm_init(struct kvm_cpu_context *host_ctxt)
 {
 	DECLARE_REG(phys_addr_t, phys, host_ctxt, 1);
@@ -625,6 +663,288 @@ static void handle___pkvm_finalize_teardown_vm(struct kvm_cpu_context *host_ctxt
 	cpu_reg(host_ctxt, 1) = __pkvm_finalize_teardown_vm(handle);
 }
 
+static void handle___pkvm_iommu_register_ops(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(struct kvm_iommu_ops *, ops, host_ctxt, 1);
+	pkvm_handle_t drv_id;
+
+	cpu_reg(host_ctxt, 1) = kvm_iommu_register_ops(ops, &drv_id);
+	cpu_reg(host_ctxt, 2) = drv_id;
+}
+
+static void handle___pkvm_iommu_debug_read(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, drv_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 2);
+	DECLARE_REG(u32, selector, host_ctxt, 3);
+	u64 value0 = 0, value1 = 0;
+
+	cpu_reg(host_ctxt, 1) = kvm_iommu_debug_read(drv_id, iommu_id,
+						     selector, &value0, &value1);
+	cpu_reg(host_ctxt, 2) = value0;
+	cpu_reg(host_ctxt, 3) = value1;
+}
+
+static void handle___pkvm_devices_init(struct kvm_cpu_context *host_ctxt)
+{
+	cpu_reg(host_ctxt, 1) = pkvm_init_devices();
+}
+
+static void handle___pkvm_hyp_alloc_mgt_refill(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(enum hyp_alloc_mgt_id, id, host_ctxt, 1);
+	DECLARE_REG(phys_addr_t, phys, host_ctxt, 2);
+	DECLARE_REG(unsigned long, nr_pages, host_ctxt, 3);
+	struct kvm_hyp_memcache mc = {
+		.head = phys,
+		.nr_pages = nr_pages,
+	};
+
+	errno_to_smccc(hyp_alloc_mgt_refill(id, &mc), host_ctxt);
+	WARN_ON(!PAGE_ALIGNED(mc.head) || mc.nr_pages > PAGE_SIZE);
+	cpu_reg(host_ctxt, 3) = mc.head | mc.nr_pages;
+}
+
+static void handle___pkvm_hyp_alloc_mgt_reclaimable(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(enum hyp_alloc_mgt_id, id, host_ctxt, 1);
+
+	cpu_reg(host_ctxt, 1) = hyp_alloc_mgt_reclaimable(id);
+}
+
+static void handle___pkvm_hyp_alloc_mgt_reclaim(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(enum hyp_alloc_mgt_id, id, host_ctxt, 1);
+	DECLARE_REG(int, target, host_ctxt, 2);
+	struct kvm_hyp_memcache mc = { };
+
+	hyp_alloc_mgt_reclaim(id, &mc, target);
+	cpu_reg(host_ctxt, 1) = mc.head;
+	cpu_reg(host_ctxt, 2) = mc.nr_pages;
+}
+
+static void handle___pkvm_host_iommu_alloc_domain(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, drv_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 2);
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 3);
+	DECLARE_REG(int, type, host_ctxt, 4);
+	int ret;
+
+	ret = kvm_iommu_alloc_domain(drv_id, iommu_id, domain_id, type);
+	errno_to_smccc(ret, host_ctxt);
+}
+
+static void handle___pkvm_host_iommu_free_domain(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 1);
+
+	cpu_reg(host_ctxt, 1) = kvm_iommu_free_domain(domain_id);
+}
+
+static void handle___pkvm_host_iommu_attach_dev(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 2);
+	DECLARE_REG(unsigned int, endpoint, host_ctxt, 3);
+	DECLARE_REG(unsigned int, pasid, host_ctxt, 4);
+	DECLARE_REG(unsigned int, ssid_bits, host_ctxt, 5);
+	DECLARE_REG(unsigned long, flags, host_ctxt, 6);
+	int ret;
+
+	ret = kvm_iommu_attach_dev(iommu_id, domain_id, endpoint, pasid,
+				   ssid_bits, flags);
+	this_cpu_hyp_req_to_smccc(ret, host_ctxt);
+}
+
+static void handle___pkvm_host_iommu_attach_dev_nested(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 2);
+	DECLARE_REG(unsigned int, endpoint, host_ctxt, 3);
+	DECLARE_REG(unsigned int, pasid, host_ctxt, 4);
+	DECLARE_REG(unsigned long, flags, host_ctxt, 5);
+	DECLARE_REG(void *, s1_desc, host_ctxt, 6);
+	DECLARE_REG(size_t, s1_desc_size, host_ctxt, 7);
+	int ret;
+
+	ret = kvm_iommu_attach_dev_nested(iommu_id, domain_id, endpoint, pasid,
+					  flags, s1_desc, s1_desc_size);
+	this_cpu_hyp_req_to_smccc(ret, host_ctxt);
+}
+
+static void handle___pkvm_host_iommu_detach_dev(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 2);
+	DECLARE_REG(unsigned int, endpoint, host_ctxt, 3);
+	DECLARE_REG(unsigned int, pasid, host_ctxt, 4);
+
+	cpu_reg(host_ctxt, 1) = kvm_iommu_detach_dev(iommu_id, domain_id,
+						       endpoint, pasid);
+}
+
+static void handle___pkvm_host_iommu_map_pages(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 1);
+	DECLARE_REG(unsigned long, iova, host_ctxt, 2);
+	DECLARE_REG(phys_addr_t, paddr, host_ctxt, 3);
+	DECLARE_REG(size_t, pgsize, host_ctxt, 4);
+	DECLARE_REG(size_t, pgcount, host_ctxt, 5);
+	DECLARE_REG(unsigned int, prot, host_ctxt, 6);
+	unsigned long mapped;
+	int ret;
+
+	ret = kvm_iommu_map_pages(domain_id, iova, paddr, pgsize, pgcount,
+				  prot, &mapped);
+	this_cpu_hyp_req_to_smccc(mapped, host_ctxt);
+	cpu_reg(host_ctxt, 0) = ret;
+}
+
+static void handle___pkvm_host_iommu_unmap_pages(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 1);
+	DECLARE_REG(unsigned long, iova, host_ctxt, 2);
+	DECLARE_REG(size_t, pgsize, host_ctxt, 3);
+	DECLARE_REG(size_t, pgcount, host_ctxt, 4);
+	unsigned long unmapped;
+
+	unmapped = kvm_iommu_unmap_pages(domain_id, iova, pgsize, pgcount);
+	this_cpu_hyp_req_to_smccc(unmapped, host_ctxt);
+}
+
+static void handle___pkvm_host_iommu_iova_to_phys(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 1);
+	DECLARE_REG(unsigned long, iova, host_ctxt, 2);
+
+	cpu_reg(host_ctxt, 1) = kvm_iommu_iova_to_phys(domain_id, iova);
+}
+
+static void handle___pkvm_host_iommu_set_identity(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, drv_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 2);
+	DECLARE_REG(pkvm_handle_t, dev_id, host_ctxt, 3);
+	DECLARE_REG(bool, on, host_ctxt, 4);
+	DECLARE_REG(unsigned long, flags, host_ctxt, 5);
+	int ret;
+
+	ret = kvm_iommu_set_identity(drv_id, iommu_id, dev_id, on, flags);
+	this_cpu_hyp_req_to_smccc(ret, host_ctxt);
+}
+
+static void handle___pkvm_host_iommu_map_sg(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 1);
+	DECLARE_REG(unsigned long, iova, host_ctxt, 2);
+	DECLARE_REG(struct kvm_iommu_sg *, sg, host_ctxt, 3);
+	DECLARE_REG(unsigned int, nent, host_ctxt, 4);
+	DECLARE_REG(unsigned int, prot, host_ctxt, 5);
+	unsigned long mapped;
+
+	mapped = kvm_iommu_map_sg(domain_id, iova, kern_hyp_va(sg), nent,
+				  prot);
+	this_cpu_hyp_req_to_smccc(mapped, host_ctxt);
+}
+
+static void handle___pkvm_host_iommu_iotlb_inv_nested_domain(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, domain_id, host_ctxt, 1);
+	DECLARE_REG(unsigned long, iova, host_ctxt, 2);
+	DECLARE_REG(size_t, size, host_ctxt, 3);
+	DECLARE_REG(size_t, granule, host_ctxt, 4);
+	DECLARE_REG(bool, leaf, host_ctxt, 5);
+
+	cpu_reg(host_ctxt, 1) = kvm_iommu_iotlb_inv_nested_domain(
+		domain_id, iova, size, granule, leaf);
+}
+
+static void handle___pkvm_host_iommu_nested_cfg_sync(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, drv_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 2);
+	DECLARE_REG(void *, cmd_desc, host_ctxt, 3);
+	DECLARE_REG(size_t, cmd_desc_size, host_ctxt, 4);
+
+	cpu_reg(host_ctxt, 1) = kvm_iommu_nested_cfg_sync(
+		drv_id, iommu_id, cmd_desc, cmd_desc_size);
+}
+
+static void handle___pkvm_host_iommu_page_response(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pkvm_handle_t, drv_id, host_ctxt, 1);
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 2);
+	DECLARE_REG(unsigned int, endpoint, host_ctxt, 3);
+	DECLARE_REG(unsigned int, pasid, host_ctxt, 4);
+	DECLARE_REG(unsigned int, grpid, host_ctxt, 5);
+	DECLARE_REG(unsigned int, status, host_ctxt, 6);
+	int ret;
+
+	ret = kvm_iommu_page_response(drv_id, iommu_id, endpoint, pasid,
+				      grpid, status);
+	this_cpu_hyp_req_to_smccc(ret, host_ctxt);
+}
+
+static void handle___pkvm_host_hvc_pd(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(u64, device_id, host_ctxt, 1);
+	DECLARE_REG(u64, on, host_ctxt, 2);
+
+	cpu_reg(host_ctxt, 1) = pkvm_host_hvc_pd(device_id, on);
+}
+
+static void handle___pkvm_host_donate_hyp_mmio(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(u64, pfn, host_ctxt, 1);
+	DECLARE_REG(u64, nr_pages, host_ctxt, 2);
+
+	cpu_reg(host_ctxt, 1) = pkvm_device_hyp_assign_mmio(pfn, nr_pages);
+}
+
+static void handle___pkvm_host_reclaim_hyp_mmio(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(u64, pfn, host_ctxt, 1);
+	DECLARE_REG(u64, nr_pages, host_ctxt, 2);
+
+	cpu_reg(host_ctxt, 1) = pkvm_device_reclaim_mmio(pfn, nr_pages);
+}
+
+static void handle___pkvm_host_map_guest_mmio(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(u64, pfn, host_ctxt, 1);
+	DECLARE_REG(u64, gfn, host_ctxt, 2);
+	struct pkvm_hyp_vcpu *hyp_vcpu = pkvm_get_loaded_hyp_vcpu();
+	int ret = -EINVAL;
+
+	if (hyp_vcpu && pkvm_hyp_vcpu_is_protected(hyp_vcpu)) {
+		ret = pkvm_refill_memcache(hyp_vcpu);
+		if (!ret)
+			ret = pkvm_host_map_guest_mmio(hyp_vcpu, pfn, gfn);
+	}
+	errno_to_smccc(ret, host_ctxt);
+}
+
+static void handle___pkvm_pviommu_attach(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(struct kvm *, host_kvm, host_ctxt, 1);
+	DECLARE_REG(int, pviommu_id, host_ctxt, 2);
+
+	cpu_reg(host_ctxt, 1) = pkvm_pviommu_attach(host_kvm, pviommu_id);
+}
+
+static void handle___pkvm_pviommu_add_vsid(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(struct kvm *, host_kvm, host_ctxt, 1);
+	DECLARE_REG(int, pviommu_id, host_ctxt, 2);
+	DECLARE_REG(pkvm_handle_t, iommu_id, host_ctxt, 3);
+	DECLARE_REG(u32, sid, host_ctxt, 4);
+	DECLARE_REG(u32, vsid, host_ctxt, 5);
+
+	cpu_reg(host_ctxt, 1) = pkvm_pviommu_add_vsid(
+		host_kvm, pviommu_id, iommu_id, sid, vsid);
+}
+
 static void handle___tracing_load(struct kvm_cpu_context *host_ctxt)
 {
 	DECLARE_REG(unsigned long, desc_hva, host_ctxt, 1);
@@ -733,6 +1053,10 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__vgic_v3_restore_vmcr_aprs),
 	HANDLE_FUNC(__vgic_v5_save_apr),
 	HANDLE_FUNC(__vgic_v5_restore_vmcr_apr),
+	HANDLE_FUNC(__pkvm_iommu_register_ops),
+	HANDLE_FUNC(__pkvm_iommu_debug_read),
+	HANDLE_FUNC(__pkvm_devices_init),
+	HANDLE_FUNC(__pkvm_host_iommu_set_identity),
 
 	HANDLE_FUNC(__pkvm_host_share_hyp),
 	HANDLE_FUNC(__pkvm_host_unshare_hyp),
@@ -755,6 +1079,27 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__pkvm_vcpu_load),
 	HANDLE_FUNC(__pkvm_vcpu_put),
 	HANDLE_FUNC(__pkvm_tlb_flush_vmid),
+	HANDLE_FUNC(__pkvm_host_iommu_alloc_domain),
+	HANDLE_FUNC(__pkvm_host_iommu_free_domain),
+	HANDLE_FUNC(__pkvm_host_iommu_attach_dev),
+	HANDLE_FUNC(__pkvm_host_iommu_attach_dev_nested),
+	HANDLE_FUNC(__pkvm_host_iommu_detach_dev),
+	HANDLE_FUNC(__pkvm_host_iommu_map_pages),
+	HANDLE_FUNC(__pkvm_host_iommu_unmap_pages),
+	HANDLE_FUNC(__pkvm_host_iommu_iova_to_phys),
+	HANDLE_FUNC(__pkvm_host_iommu_map_sg),
+	HANDLE_FUNC(__pkvm_host_iommu_iotlb_inv_nested_domain),
+	HANDLE_FUNC(__pkvm_host_iommu_nested_cfg_sync),
+	HANDLE_FUNC(__pkvm_host_iommu_page_response),
+	HANDLE_FUNC(__pkvm_host_hvc_pd),
+	HANDLE_FUNC(__pkvm_host_donate_hyp_mmio),
+	HANDLE_FUNC(__pkvm_host_reclaim_hyp_mmio),
+	HANDLE_FUNC(__pkvm_host_map_guest_mmio),
+	HANDLE_FUNC(__pkvm_pviommu_attach),
+	HANDLE_FUNC(__pkvm_pviommu_add_vsid),
+	HANDLE_FUNC(__pkvm_hyp_alloc_mgt_refill),
+	HANDLE_FUNC(__pkvm_hyp_alloc_mgt_reclaimable),
+	HANDLE_FUNC(__pkvm_hyp_alloc_mgt_reclaim),
 };
 
 static void handle_host_hcall(struct kvm_cpu_context *host_ctxt)

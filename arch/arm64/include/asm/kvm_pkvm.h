@@ -200,6 +200,24 @@ struct pkvm_mapping {
 	u64 __subtree_last;	/* Internal member for interval tree */
 };
 
+#define kvm_call_refill_hyp_nvhe(f, ...)                            \
+({                                                                  \
+	struct arm_smccc_res res;                                    \
+	int __ret;                                                   \
+	do {                                                        \
+		__ret = -1;                                          \
+		arm_smccc_1_1_hvc(KVM_HOST_SMCCC_FUNC(f),            \
+				  ##__VA_ARGS__, &res);                  \
+		if (WARN_ON(res.a0 != SMCCC_RET_SUCCESS))             \
+			break;                                         \
+		__ret = res.a1;                                      \
+		if (!__ret)                                          \
+			break;                                         \
+		__ret = __pkvm_handle_smccc_req(&res, NULL);          \
+	} while (!__ret);                                             \
+	__ret;                                                       \
+})
+
 int pkvm_pgtable_stage2_init(struct kvm_pgtable *pgt, struct kvm_s2_mmu *mmu,
 			     struct kvm_pgtable_mm_ops *mm_ops);
 void pkvm_pgtable_stage2_destroy_range(struct kvm_pgtable *pgt,

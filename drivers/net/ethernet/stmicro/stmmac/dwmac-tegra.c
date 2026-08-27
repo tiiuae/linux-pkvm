@@ -324,6 +324,11 @@ static int tegra_mgbe_probe(struct platform_device *pdev)
 	}
 
 	plat->core_type = DWMAC_CORE_XGMAC;
+	plat->host_dma_width = 32;
+	/* The pvIOMMU endpoint is virtual; the wrapper emits physical SID 6. */
+	mgbe->iommu_sid = 6;
+	dev_info(mgbe->dev, "pKVM DMA aperture 32-bit, physical SID %u\n",
+		 mgbe->iommu_sid);
 	plat->flags |= STMMAC_FLAG_TSO_EN;
 	plat->pmt = true;
 	plat->bsp_priv = mgbe;

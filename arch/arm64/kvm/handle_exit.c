@@ -443,6 +443,26 @@ static int handle_trap_exceptions(struct kvm_vcpu *vcpu)
  * Return > 0 to return to guest, < 0 on error, 0 (and set exit_reason) on
  * proper exit to userspace.
  */
+static int handle_hyp_reqs(struct kvm_vcpu *vcpu)
+{
+	struct kvm_hyp_req *req = vcpu->arch.hyp_reqs;
+	int i, ret;
+
+	if (!req)
+		return -EINVAL;
+
+	for (i = 0; i < KVM_HYP_REQ_MAX; i++, req++) {
+		if (req->type == KVM_HYP_LAST_REQ)
+			return 1;
+
+		ret = handle_hyp_req(vcpu, req, NULL);
+		if (ret)
+			return ret;
+	}
+
+	return -E2BIG;
+}
+
 int handle_exit(struct kvm_vcpu *vcpu, int exception_index)
 {
 	struct kvm_run *run = vcpu->run;
@@ -478,6 +498,8 @@ int handle_exit(struct kvm_vcpu *vcpu, int exception_index)
 		 */
 		run->exit_reason = KVM_EXIT_FAIL_ENTRY;
 		return -EINVAL;
+	case ARM_EXCEPTION_HYP_REQ:
+		return handle_hyp_reqs(vcpu);
 	default:
 		kvm_pr_unimpl("Unsupported exception type: %d",
 			      exception_index);

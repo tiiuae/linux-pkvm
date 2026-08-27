@@ -1202,6 +1202,28 @@ struct kvm_device_attr {
 #define   KVM_DEV_VFIO_GROUP_DEL	KVM_DEV_VFIO_FILE_DEL
 #define   KVM_DEV_VFIO_GROUP_SET_SPAPR_TCE		3
 
+/* pKVM pvIOMMU configuration for protected guests. */
+#define KVM_DEV_VFIO_PVIOMMU				5
+#define  KVM_DEV_VFIO_PVIOMMU_ATTACH			1
+
+struct kvm_vfio_iommu_info {
+	__u32 size;
+	__s32 device_fd;
+	__u32 out_nr_sids;
+	__u32 __reserved;
+};
+#define  KVM_DEV_VFIO_PVIOMMU_GET_INFO			2
+
+struct kvm_vfio_iommu_config {
+	__u32 size;
+	__s32 device_fd;
+	__u32 sid_idx;
+	__u32 vsid;
+	__u32 __reserved;
+};
+#define KVM_PVIOMMU_SET_CONFIG \
+	_IOWR(KVMIO, 0x1, struct kvm_vfio_iommu_config)
+
 enum kvm_device_type {
 	KVM_DEV_TYPE_FSL_MPIC_20	= 1,
 #define KVM_DEV_TYPE_FSL_MPIC_20	KVM_DEV_TYPE_FSL_MPIC_20

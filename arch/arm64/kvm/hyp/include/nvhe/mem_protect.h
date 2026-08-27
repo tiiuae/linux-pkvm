@@ -60,9 +60,28 @@ void handle_host_mem_abort(struct kvm_cpu_context *host_ctxt);
 
 int hyp_pin_shared_mem(void *from, void *to);
 void hyp_unpin_shared_mem(void *from, void *to);
+int refill_hyp_pool(struct hyp_pool *pool,
+		    struct kvm_hyp_memcache *host_mc);
+int reclaim_hyp_pool(struct hyp_pool *pool,
+		     struct kvm_hyp_memcache *host_mc,
+		     int nr_pages, bool force);
 void reclaim_pgtable_pages(struct pkvm_hyp_vm *vm, struct kvm_hyp_memcache *mc);
 int refill_memcache(struct kvm_hyp_memcache *mc, unsigned long min_pages,
 		    struct kvm_hyp_memcache *host_mc);
+int __pkvm_use_dma(u64 phys_addr, size_t size, struct pkvm_hyp_vm *vm);
+int __pkvm_unuse_dma(u64 phys_addr, size_t size, struct pkvm_hyp_vm *vm);
+int pkvm_get_guest_pa_request(struct pkvm_hyp_vcpu *hyp_vcpu, u64 ipa,
+			      size_t ipa_size, u64 *out_pa, s8 *out_level);
+int pkvm_get_guest_pa_request_use_dma(struct pkvm_hyp_vcpu *hyp_vcpu,
+				      u64 ipa, size_t ipa_size,
+				      u64 *out_pa, s8 *out_level);
+int pkvm_host_donate_hyp_mmio(u64 pfn, u64 nr_pages,
+			      enum kvm_pgtable_prot prot);
+int pkvm_hyp_reclaim_mmio(u64 pfn, u64 nr_pages);
+int pkvm_reclaim_guest_mmio_to_host(u64 phys, u64 size);
+int hyp_check_range_owned(u64 phys, u64 size);
+int __pkvm_install_guest_mmio(struct pkvm_hyp_vcpu *hyp_vcpu,
+			      u64 pfn, u64 gfn);
 
 static __always_inline void __load_host_stage2(void)
 {

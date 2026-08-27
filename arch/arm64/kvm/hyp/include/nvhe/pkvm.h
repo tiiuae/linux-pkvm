@@ -8,6 +8,7 @@
 #define __ARM64_KVM_NVHE_PKVM_H__
 
 #include <asm/kvm_pkvm.h>
+#include <kvm/power_domain.h>
 
 #include <nvhe/gfp.h>
 #include <nvhe/spinlock.h>
@@ -43,6 +44,11 @@ struct pkvm_hyp_vm {
 	struct hyp_pool pool;
 	hyp_spinlock_t lock;
 
+	/* pvIOMMUs and domains owned by this protected VM. */
+	struct list_head pviommus;
+	struct hyp_pool iommu_pool;
+	struct list_head domains;
+
 	/* Array of the hyp vCPU structures for this VM. */
 	struct pkvm_hyp_vcpu *vcpus[];
 };
@@ -66,6 +72,8 @@ static inline bool pkvm_hyp_vm_is_protected(struct pkvm_hyp_vm *hyp_vm)
 }
 
 void pkvm_hyp_vm_table_init(void *tbl);
+struct kvm_hyp_req *pkvm_hyp_req_reserve(struct pkvm_hyp_vcpu *hyp_vcpu,
+					  u8 type);
 
 int __pkvm_reserve_vm(void);
 void __pkvm_unreserve_vm(pkvm_handle_t handle);
@@ -87,6 +95,31 @@ struct pkvm_hyp_vcpu *pkvm_get_loaded_hyp_vcpu(void);
 struct pkvm_hyp_vm *get_pkvm_hyp_vm(pkvm_handle_t handle);
 struct pkvm_hyp_vm *get_np_pkvm_hyp_vm(pkvm_handle_t handle);
 void put_pkvm_hyp_vm(struct pkvm_hyp_vm *hyp_vm);
+
+#define MAX_POWER_DOMAINS 40
+
+struct kvm_power_domain_ops {
+	int (*power_on)(struct kvm_power_domain *pd);
+	int (*power_off)(struct kvm_power_domain *pd);
+};
+
+int pkvm_init_hvc_pd(struct kvm_power_domain *pd,
+		     const struct kvm_power_domain_ops *ops);
+int pkvm_host_hvc_pd(u64 device_id, u64 on);
+
+static inline int
+pkvm_init_power_domain(struct kvm_power_domain *pd,
+		       const struct kvm_power_domain_ops *ops)
+{
+	switch (pd->type) {
+	case KVM_POWER_DOMAIN_NONE:
+		return 0;
+	case KVM_POWER_DOMAIN_HOST_HVC:
+		return pkvm_init_hvc_pd(pd, ops);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
 
 bool kvm_handle_pvm_hvc64(struct kvm_vcpu *vcpu, u64 *exit_code);
 bool kvm_handle_pvm_sysreg(struct kvm_vcpu *vcpu, u64 *exit_code);

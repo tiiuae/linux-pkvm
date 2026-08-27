@@ -1807,6 +1807,8 @@ static int probe_iommu_group(struct device *dev, void *data)
 	mutex_lock(&iommu_probe_device_lock);
 	ret = __iommu_probe_device(dev, group_list);
 	mutex_unlock(&iommu_probe_device_lock);
+	if (ret && ret != -ENODEV)
+		dev_err(dev, "IOMMU probe failed: %d\n", ret);
 	if (ret == -ENODEV)
 		ret = 0;
 
@@ -1977,6 +1979,8 @@ static int bus_iommu_probe(const struct bus_type *bus)
 		 */
 		ret = iommu_setup_default_domain(group, 0);
 		if (ret) {
+			dev_err(iommu_group_first_dev(group),
+				"IOMMU default domain setup failed: %d\n", ret);
 			mutex_unlock(&group->mutex);
 			return ret;
 		}

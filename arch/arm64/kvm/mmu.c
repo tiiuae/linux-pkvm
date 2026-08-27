@@ -269,16 +269,6 @@ static int kvm_host_page_count(void *addr)
 	return page_count(virt_to_page(addr));
 }
 
-static phys_addr_t kvm_host_pa(void *addr)
-{
-	return __pa(addr);
-}
-
-static void *kvm_host_va(phys_addr_t phys)
-{
-	return __va(phys);
-}
-
 static void clean_dcache_guest_page(void *va, size_t size)
 {
 	__clean_dcache_guest_page(va, size);
@@ -1119,38 +1109,39 @@ void kvm_free_stage2_pgd(struct kvm_s2_mmu *mmu)
 	}
 }
 
-static void hyp_mc_free_fn(void *addr, void *mc)
+static void hyp_mc_free_fn(void *addr, void *mc, unsigned long order)
 {
 	struct kvm_hyp_memcache *memcache = mc;
 
 	if (memcache->flags & HYP_MEMCACHE_ACCOUNT_STAGE2)
-		kvm_account_pgtable_pages(addr, -1);
+		kvm_account_pgtable_pages(addr, -(1UL << order));
 
-	free_page((unsigned long)addr);
+	free_pages((unsigned long)addr, order);
 }
 
-static void *hyp_mc_alloc_fn(void *mc)
+static void *hyp_mc_alloc_fn(void *mc, unsigned long order)
 {
 	struct kvm_hyp_memcache *memcache = mc;
 	void *addr;
 
-	addr = (void *)__get_free_page(GFP_KERNEL_ACCOUNT);
+	addr = (void *)__get_free_pages(GFP_KERNEL_ACCOUNT, order);
 	if (addr && memcache->flags & HYP_MEMCACHE_ACCOUNT_STAGE2)
-		kvm_account_pgtable_pages(addr, 1);
+		kvm_account_pgtable_pages(addr, 1UL << order);
 
 	return addr;
 }
 
-void free_hyp_memcache(struct kvm_hyp_memcache *mc)
+unsigned long free_hyp_memcache(struct kvm_hyp_memcache *mc)
 {
 	if (!is_protected_kvm_enabled())
-		return;
+		return 0;
 
 	kfree(mc->mapping);
-	__free_hyp_memcache(mc, hyp_mc_free_fn, kvm_host_va, mc);
+	return __free_hyp_memcache(mc, hyp_mc_free_fn, kvm_host_va, mc);
 }
 
-int topup_hyp_memcache(struct kvm_hyp_memcache *mc, unsigned long min_pages)
+int topup_hyp_memcache(struct kvm_hyp_memcache *mc, unsigned long min_pages,
+			unsigned long order)
 {
 	if (!is_protected_kvm_enabled())
 		return 0;
@@ -1163,7 +1154,7 @@ int topup_hyp_memcache(struct kvm_hyp_memcache *mc, unsigned long min_pages)
 	}
 
 	return __topup_hyp_memcache(mc, min_pages, hyp_mc_alloc_fn,
-				    kvm_host_pa, mc);
+				    kvm_host_pa, mc, order);
 }
 
 /**
@@ -1534,7 +1525,7 @@ static int topup_mmu_memcache(struct kvm_vcpu *vcpu, void *memcache)
 	if (!is_protected_kvm_enabled())
 		return kvm_mmu_topup_memory_cache(memcache, min_pages);
 
-	return topup_hyp_memcache(memcache, min_pages);
+	return topup_hyp_memcache(memcache, min_pages, 0);
 }
 
 /*
@@ -1678,6 +1669,31 @@ struct kvm_s2_fault_vma_info {
 	bool		map_non_cacheable;
 };
 
+static int pkvm_mem_abort_device(const struct kvm_s2_fault_desc *s2fd)
+{
+	bool writable;
+	struct page *page;
+	kvm_pfn_t pfn;
+	gfn_t gfn;
+	int ret;
+
+	gfn = s2fd->fault_ipa >> PAGE_SHIFT;
+	pfn = __kvm_faultin_pfn(s2fd->memslot, gfn,
+				kvm_is_write_fault(s2fd->vcpu) ? FOLL_WRITE : 0,
+				&writable, &page);
+	if (is_error_noslot_pfn(pfn))
+		return -EREMOTEIO;
+
+	if (pfn_is_map_memory(pfn)) {
+		kvm_release_faultin_page(s2fd->vcpu->kvm, page, true, writable);
+		return -EREMOTEIO;
+	}
+
+	ret = kvm_call_refill_hyp_nvhe(__pkvm_host_map_guest_mmio, pfn, gfn);
+	/* Another vCPU may have completed the mapping first. */
+	return ret == -EEXIST ? 0 : ret;
+}
+
 static int pkvm_mem_abort(const struct kvm_s2_fault_desc *s2fd)
 {
 	unsigned int flags = FOLL_HWPOISON | FOLL_LONGTERM | FOLL_WRITE;
@@ -1707,7 +1723,9 @@ static int pkvm_mem_abort(const struct kvm_s2_fault_desc *s2fd)
 		ret = 0;
 		goto dec_account;
 	} else if (ret != 1) {
-		ret = -EFAULT;
+		ret = pkvm_mem_abort_device(s2fd);
+		if (ret == -EREMOTEIO)
+			ret = -EFAULT;
 		goto dec_account;
 	} else if (!folio_test_swapbacked(page_folio(page))) {
 		/*
@@ -2402,6 +2420,34 @@ out:
 out_unlock:
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 	return ret;
+}
+
+int pkvm_mem_abort_range(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			 size_t size)
+{
+	phys_addr_t end;
+	int ret;
+
+	if (!size || !PAGE_ALIGNED(fault_ipa | size) ||
+	    check_add_overflow(fault_ipa, size, &end) ||
+	    end > kvm_phys_size(vcpu->arch.hw_mmu))
+		return -EINVAL;
+
+	for (; fault_ipa < end; fault_ipa += PAGE_SIZE) {
+		vcpu->arch.fault.esr_el2 =
+			(ESR_ELx_EC_DABT_LOW << ESR_ELx_EC_SHIFT) |
+			ESR_ELx_WNR | ESR_ELx_FSC_FAULT |
+			FIELD_PREP(ESR_ELx_FSC_LEVEL, 3);
+		vcpu->arch.fault.hpfar_el2 =
+			(HPFAR_EL2_NS | (fault_ipa >> 8)) & HPFAR_MASK;
+		vcpu->arch.fault.far_el2 = 0;
+
+		ret = kvm_handle_guest_abort(vcpu);
+		if (ret != 1)
+			return ret < 0 ? ret : -EFAULT;
+	}
+
+	return 0;
 }
 
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)

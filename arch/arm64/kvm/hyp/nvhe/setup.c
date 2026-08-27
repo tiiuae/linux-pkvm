@@ -10,9 +10,11 @@
 #include <asm/kvm_pgtable.h>
 #include <asm/kvm_pkvm.h>
 
+#include <nvhe/alloc.h>
 #include <nvhe/early_alloc.h>
 #include <nvhe/ffa.h>
 #include <nvhe/gfp.h>
+#include <nvhe/iommu.h>
 #include <nvhe/memory.h>
 #include <nvhe/mem_protect.h>
 #include <nvhe/mm.h>
@@ -20,6 +22,13 @@
 #include <nvhe/trap_handler.h>
 
 unsigned long hyp_nr_cpus;
+
+/* See kvm_iommu_pages(). */
+#ifdef CONFIG_IOMMU_POOL_PAGES
+size_t hyp_kvm_iommu_pages = CONFIG_IOMMU_POOL_PAGES;
+#else
+size_t hyp_kvm_iommu_pages;
+#endif
 
 #define hyp_percpu_size ((unsigned long)__per_cpu_end - \
 			 (unsigned long)__per_cpu_start)
@@ -30,6 +39,7 @@ static void *hyp_pgt_base;
 static void *host_s2_pgt_base;
 static void *selftest_base;
 static void *ffa_proxy_pages;
+static void *iommu_base;
 static struct kvm_pgtable_mm_ops pkvm_pgtable_mm_ops;
 static struct hyp_pool hpool;
 
@@ -68,6 +78,12 @@ static int divide_memory_pool(void *virt, unsigned long size)
 	ffa_proxy_pages = hyp_early_alloc_contig(nr_pages);
 	if (!ffa_proxy_pages)
 		return -ENOMEM;
+
+	if (hyp_kvm_iommu_pages) {
+		iommu_base = hyp_early_alloc_contig(hyp_kvm_iommu_pages);
+		if (!iommu_base)
+			return -ENOMEM;
+	}
 
 	return 0;
 }
@@ -324,6 +340,10 @@ void __noreturn __pkvm_init_finalise(void)
 	if (ret)
 		goto out;
 
+	ret = kvm_iommu_init(iommu_base, hyp_kvm_iommu_pages);
+	if (ret)
+		goto out;
+
 	ret = hyp_ffa_init(ffa_proxy_pages);
 	if (ret)
 		goto out;
@@ -360,6 +380,10 @@ int __pkvm_init(phys_addr_t phys, unsigned long size, unsigned long *per_cpu_bas
 		return ret;
 
 	ret = recreate_hyp_mappings(phys, size, per_cpu_base, hyp_va_bits);
+	if (ret)
+		return ret;
+
+	ret = hyp_alloc_init(SZ_128M);
 	if (ret)
 		return ret;
 

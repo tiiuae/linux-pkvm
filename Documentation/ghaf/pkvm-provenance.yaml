@@ -1,0 +1,299 @@
+# SPDX-License-Identifier: GPL-2.0
+schema: 2
+generation: orin-pkvm-v55
+
+sources:
+  linux:
+    repository: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+    branch: linux-7.1.y
+    tag: v7.1.7
+    tag_object: c8fde2689e91a16e9d4b11fe3b08e45c89870585
+    commit: c7ba9d6de43e9d9bd755b1f3c19501a38898c6b6
+  android:
+    repository: https://android.googlesource.com/kernel/common
+    branch: android17-6.18
+    donor_tip: e5d208fff880b1774013598e50595242fb573ac6
+
+branches:
+  base: base/v7.1.7
+  port: port/android17-pkvm-v7.1.7-r1
+  integration: integration/orin-pkvm-v7.1.7-r1
+  integration_parent: ce9c31f559a956cf4603848329bfa4cc66c29205
+
+# Stable IDs shared with the RST dependency table. A dependency change updates
+# this list, the matching RST row, and the applicable validation evidence in
+# one documentation commit.
+dependencies:
+  - id: linux-base
+    external: {owner: linux-stable, ref: v7.1.7, commit: c7ba9d6de43e9d9bd755b1f3c19501a38898c6b6}
+    adaptation: {status: exact-ref, commits: []}
+    internal: {consumer: all-port-and-integration-commits}
+    gate: tag-and-tree-identity
+  - id: android-alloc
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-alloc}
+    adaptation: {status: adapted-multi-source, commit: ebf1bc0143fe913fe5fe371182acb4d36d3fe9db}
+    internal: {consumer: protected-iommu-allocation-and-refill}
+    gate: port-tree-reconstruction
+  - id: android-iommu
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-iommu}
+    adaptation: {status: adapted-multi-source, commit: 20291c7f73ef6a26a22ca0c58c96e7ec245837a5}
+    internal: {consumer: tegra-el2-iommu-backend}
+    gate: host-and-guest-kernel-builds
+  - id: android-device
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-device}
+    adaptation: {status: adapted-multi-source, commit: 437045f64dff2b2586cb81a1ddc691ae188b9ebf}
+    internal: {consumer: mgbe-reset-activation-and-teardown}
+    gate: active-dma-teardown
+  - id: android-pviommu
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-pviommu}
+    adaptation: {status: adapted-multi-source, commit: e2b4614bd0c4dd6c51ba7f8d8d9017320dd261f4}
+    internal: {consumer: raw-sid-export-and-protected-guest-attach}
+    gate: netvm-attach-and-lifecycle
+  - id: android-guest
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-guest}
+    adaptation: {status: adapted-multi-source, commit: 2d5cb9d361b65c9d263e515a62da0e725d91c005}
+    internal: {consumer: netvm-software-iova-mirror}
+    gate: bidirectional-mgbe-soak
+  - id: android-vfio
+    external: {owner: android-common, ref: android17-6.18, origins_from: port_commits.android-vfio}
+    adaptation: {status: adapted-multi-source, commit: c5d77d0885a302d1f10f0e10837cdd40e7959066}
+    internal: {consumer: vfio-platform-assignment-for-mgbe0}
+    gate: protected-netvm-boot
+  - id: android-maple
+    external: {owner: android-common, commit: 8e7a03dcb9f548113e4b19dbaac28f035944255b}
+    adaptation: {status: exact, commit: ce9c31f559a956cf4603848329bfa4cc66c29205}
+    internal: {consumer: patch-0041-diagnostic-accounting}
+    gate: 8-gib-each-way-and-800-probes
+  - id: orin-smmu
+    external: {owners: [android-common, tegra234-register-contract]}
+    adaptation: {patches: [patch-0002, patch-0003, patch-0004, patch-0005, patch-0006, patch-0007, patch-0008, patch-0009, patch-0010, patch-0011, patch-0012, patch-0013, patch-0014, patch-0015, patch-0016, patch-0017, patch-0018]}
+    internal: {consumer: tegra-smmuv2-el2-ownership-and-host-domains}
+    gate: protected-nvhe-host-boot
+  - id: orin-dma
+    external: {owners: [linux-dma-iommu-apis, android-port-layer]}
+    adaptation: {patches: [patch-0019, patch-0020, patch-0021, patch-0022, patch-0023, patch-0024, patch-0025, patch-0026, patch-0027, patch-0028]}
+    internal: {consumer: translated-and-identity-dma-routing}
+    gate: host-storage-xusb-and-mgbe
+  - id: orin-vfio
+    external: {owners: [linux-vfio-kvm, android-device-lifecycle]}
+    adaptation: {patches: [patch-0029, patch-0030, patch-0031, patch-0032, patch-0033, patch-0034, patch-0035-xusb, patch-0035-mgbe]}
+    internal: {consumer: assigned-device-activation-and-guest-dma-aperture}
+    gate: vm-boot-and-active-teardown
+  - id: orin-streams
+    external: {owners: [tegra-stream-match, pkvm-host-pinning-apis]}
+    adaptation: {patches: [patch-0036, patch-0037, patch-0038, patch-0039, patch-0040, patch-0041]}
+    internal: {consumer: raw-sid-overlapping-pins-and-dma-accounting}
+    gate: clean-host-and-guest-fault-scans
+  - id: ghaf-consumer
+    external: {owner: tiiuae/linux-pkvm, tag: orin-pkvm-v55, commit: a62ea5215093d4595de020d5ae55e2a74d274491}
+    adaptation: {status: one-external-input-shared-package-set}
+    internal: {repository: tiiuae/ghaf, commit: 5effb128640a185369b678b8d150da617c8b550e}
+    gate: source-config-build-identified-agx-parity
+  - id: ghaf-parent
+    external: {owner: tiiuae/ghaf, pull_request: 2133, commit: 21e67aebdfad2a6ae924844c7cfb1901cb651a09}
+    adaptation: {status: four-commit-rebase}
+    internal: {pull_request: 2144, commit: 5effb128640a185369b678b8d150da617c8b550e}
+    gate: range-diff-build-flash-runtime-parity
+  - id: jetpack-pr22
+    external: {owner: tiiuae/jetpack-nixos, pull_request: 22, commit: 9ad43a2697bc3da7e9b4911192607df6541b90e4}
+    adaptation: {status: provider-owned-linux-7.1-bpmp-compatibility}
+    internal: {consumer: agx-external-kernel-package-selection}
+    gate: target-check-full-image-agx-boot
+  - id: microvm-pr586
+    external: {owner: microvm-nix/microvm.nix, pull_request: 586, commit: 0299f2d5faf597795ae78aab064eece23154b2b0}
+    adaptation: {status: provider-owned-protected-vm-and-platform-interfaces}
+    internal: {consumer: ghaf-topology-and-target-policy}
+    gate: provider-and-ghaf-platform-checks
+  - id: ghaf-crosvm-pr10
+    external: {owner: tiiuae/ghaf-crosvm, pull_request: 10, reviewed_head: f2f3d2102da1f69dd151221bae13b9046ed79b15, merge_commit: 63e3c3482553212244aec55a3fee5646b37c98bd}
+    adaptation: {status: provider-owned-uas-and-xhci-fixes}
+    internal: {consumer: combined-crosvm-source-baseline, protected_vm_usb: disabled}
+    gate: crosvm-builds-and-full-image-regression
+  - id: ghaf-crosvm-pr12
+    external: {owner: tiiuae/ghaf-crosvm, pull_request: 12, commit: aa2478bef0750cc4013f24aa2cda472346db4a93}
+    adaptation: {status: noiommu-only-extra-vfio-map-all-modes-kvm-memslot, stable_patch_id: 398007f2cd35d2920ce7dcbb60633cf4bd16e1de, based_on: 63e3c3482553212244aec55a3fee5646b37c98bd}
+    internal: {consumer: protected-mgbe-platform-assignment}
+    gate: crosvm-builds-mgbe-soak-and-lifecycle
+  - id: ghaf-crosvm-create-vm
+    external: {owner: tiiuae/ghaf-crosvm, commit: aa2478bef0750cc4013f24aa2cda472346db4a93}
+    adaptation: {status: ghaf-retained-patch, path: targets/nvidia/jetson-orin/patches/crosvm-upstream-pkvm-create-vm.patch}
+    internal: {consumer: protected-admin-net-and-chromium-vms}
+    gate: target-check-and-three-active-protected-vms
+  - id: ghaf-tfa
+    external: {owner: trusted-firmware-a, selection: jetpack-ghaf}
+    adaptation: {status: ghaf-target-local-firmware-patch}
+    internal: {consumer: agx-protected-host-firmware-integration}
+    gate: full-image-recovery-flash-protected-nvhe
+  - id: ghaf-mgbe-dt
+    external: {owners: [tegra234-dt, orin-pkvm-v55]}
+    adaptation: {status: ghaf-target-local-device-tree-overlay}
+    internal: {consumer: netvm-6800000-ethernet-pkvm-iommu}
+    gate: sid6-soak-teardown-and-settled-cycles
+  - id: ghaf-service-plane
+    external: {dependencies: [microvm-pr586, ghaf-consumer]}
+    adaptation: {status: no-generated-kernel-patch}
+    internal: {consumer: admin-net-chromium-ordering-and-policy}
+    gate: three-protected-vms-and-independent-netvm-recovery
+
+port_commits:
+  - id: android-alloc
+    commit: ebf1bc0143fe913fe5fe371182acb4d36d3fe9db
+    status: adapted-multi-source
+    origins: [6ee074eb1224ef707d80c8f014fc833f91389a50, 9f88fce5cbd93f4fdaa028e221b02b557ad24330, c13405a715ea33e0c98f09de394e998cb76f3920, 1effffa4af63c86369efc356b90ee13818ea5e2a, d3feaf96e4769f2ab023db5b98232d85e75634cf]
+  - id: android-iommu
+    commit: 20291c7f73ef6a26a22ca0c58c96e7ec245837a5
+    status: adapted-multi-source
+    origins: [5d6f2785663b8b269740f95e3b0a3fe307d00d97, 50286c4984da14fce29dfbde306d1aea76297361, 540b4b9ce3d89113fee94670cb4ea86abefb6616, a734a0e312b3ee28dda8bc8fe76496d7b9abf577, db3f87c61c2da8d7ba39807e5692ed41e1e45af6, 247011a0ccb858e0a179ddbbfea0ae755cc9fed5]
+  - id: android-device
+    commit: 437045f64dff2b2586cb81a1ddc691ae188b9ebf
+    status: adapted-multi-source
+    origins: [0e3c9e4c4282296e3b2117def6d902f101eae65f, 358f24a8c491d14a33b9e9f73722e9aec610135d, 68c58efb37d3cf2ea869dde71898319d5a200172, 44f9c1036178abf2720c45b6e1d9f4bdeae35799, 22a0449b9663faf02192ad322bb25e665fe84010, b86926ac85dbef17e89c27a82d86d72fc1937cb1]
+  - id: android-pviommu
+    commit: e2b4614bd0c4dd6c51ba7f8d8d9017320dd261f4
+    status: adapted-multi-source
+    origins: [80fccb233cf783ca8bb26e294223a457ea4f8502, 8a9430e18b890b03a13f171c55aec9a70b810a46, 38ab8e61f9813af5659603c2cf6117b37db8b4e6, 9a2496512dbd83ae3513c4a0ea0b9113875cd61b, a71ecadeb8dd41d432733b8e6deac78e4f346a43, a4a6a287e8f574a0d66034dedaf8e5c801eb97a9, 989f5620cfc35146a182912c08d92c4d40355788]
+  - id: android-guest
+    commit: 2d5cb9d361b65c9d263e515a62da0e725d91c005
+    status: adapted-multi-source
+    origins: [9dd94d09198e8d8d739541714a405a730ac6e70f, 3e6bf808c08ba6add70514c64f81c47b8f77aee6, 163ca74cad9c1defcd12241a2a504f627449bab7, 5cc04a2030f839409c418476df609f4dfef10b2f, f185914e777ce0474ecee5a7c793ec7505a884c0, 230765d93d7a05bc6ecccd302404606a7473742d]
+  - id: android-vfio
+    commit: c5d77d0885a302d1f10f0e10837cdd40e7959066
+    status: adapted-multi-source
+    origins: [0ef77a1bee1ef820e09e72dd91bfa9b05abd7c95, 69ea9011bd7d65190890f7c9dc36b757ebbcc28d, e581022df4a3e21d0be8aa581192bc45c4ca021a, b0fccd926d2ee040ec590ca6439db237edf5c247, 89f90d9773f0d5b08bb76a272dfb1364872a0101]
+  - id: android-maple
+    commit: ce9c31f559a956cf4603848329bfa4cc66c29205
+    status: exact
+    origins: [8e7a03dcb9f548113e4b19dbaac28f035944255b]
+
+integration_commits:
+  - {patch: patch-0002, commit: 43a6dc4082173775b91fe5b37f5d5b78c81b81f3, depends_on: [android-iommu, android-device]}
+  - {patch: patch-0003, commit: 7a630934b1059cab36b5911cbd5a0a1471aac470, depends_on: [patch-0002]}
+  - {patch: patch-0004, commit: 63029e75f2668793859b0133ddc59fb358eb2b71, depends_on: [patch-0002, android-device]}
+  - {patch: patch-0005, commit: 92373e6cc3a8c7b1daf5287c5b0c9532f8bd29d5, depends_on: [patch-0002]}
+  - {patch: patch-0006, commit: be1dd0521392d7c8c5dfd529e3a4b379f6854461, depends_on: [patch-0005]}
+  - {patch: patch-0007, commit: a0799e1e8a11a7172cec94c8fe031cd7b7c6fca1, depends_on: [patch-0006]}
+  - {patch: patch-0008, commit: 54735297eb7ef6c3382476c19687f80b10b906f9, depends_on: [patch-0002]}
+  - {patch: patch-0009, commit: 0d896c7610915b2496d90b5c4c210d92d70fa87f, depends_on: [patch-0007]}
+  - {patch: patch-0010, commit: 382816cff1bd55572dc10512e4c90af369a98590, depends_on: [patch-0003]}
+  - {patch: patch-0011, commit: f60c3141275a1bf160298faa7e8d61b8e7503bae, depends_on: [patch-0005]}
+  - {patch: patch-0012, commit: 7a64d93e7ff388e52c9b7592c0df83eef2806739, depends_on: [patch-0011]}
+  - {patch: patch-0013, commit: c3017a90405be4543cb534f8f6ed37df1d806288, depends_on: [patch-0012]}
+  - {patch: patch-0014, commit: 931c719bec9dcf0e237e7bda39a8f61bd6e01423, depends_on: [patch-0013]}
+  - {patch: patch-0015, commit: 5b284863f1e5f422b3f48c800a7a9d5a6f70e936, depends_on: [patch-0014]}
+  - {patch: patch-0016, commit: aae29ca1590125ec2f0f8f6f838c77e6302de468, depends_on: [patch-0015]}
+  - {patch: patch-0017, commit: 52170547b19e16119607363c39be3be333bc28d6, depends_on: [android-alloc]}
+  - {patch: patch-0018, commit: 803566cc92036b90c98075eb1e0b3f10ab359947, depends_on: [patch-0015]}
+  - {patch: patch-0019, commit: b71ab07cbadb92c49cc1ef6fdfc79e70fd11c3a5, depends_on: [patch-0018]}
+  - {patch: patch-0020, commit: 551982537295866fec8c2f3ad713e058ad9346fd, depends_on: [patch-0019]}
+  - {patch: patch-0021, commit: e4e3ce941c54b5ed58ee5da90c146e0d53968857, depends_on: [patch-0013]}
+  - {patch: patch-0022, commit: f2550c08f3571edf6bb56112a5782db4ec4e94ea, depends_on: [patch-0020, patch-0021]}
+  - {patch: patch-0023, commit: 5e8a46224ab582d4da86cc8ebc7d65c5aa04a113, depends_on: [patch-0022]}
+  - {patch: patch-0024, commit: 3e7f9fa837fa234af80cb10390b60489334e03ed, depends_on: [patch-0023]}
+  - {patch: patch-0025, commit: c13d58ac0bbbfa6f7948b98169e52989c73b3c49, depends_on: [patch-0024]}
+  - {patch: patch-0026, commit: 8dacadd1c30a5201a250013cfaa0ccff58bd8055, depends_on: [patch-0025]}
+  - {patch: patch-0027, commit: 0b87958cce6be436928236bd38d772a2784d67c1, depends_on: [patch-0026]}
+  - {patch: patch-0028, commit: 67f10cca75dece2ce616d4203c62adb642ee3cf2, depends_on: [patch-0027]}
+  - {patch: patch-0029, commit: 4b06b54a6427077fa4b6ebf15a14b05bd7e66841, depends_on: [android-vfio]}
+  - {patch: patch-0030, commit: fdade5ddea104ea20f97df2f69edcb33b2bfde4b, depends_on: [android-device]}
+  - {patch: patch-0031, commit: bf62a562290a28a46c9f30f0cf3cbc150e7ff0f5, depends_on: [patch-0029, patch-0030, android-pviommu]}
+  - {patch: patch-0032, commit: 2260ff2e10dcf00d86e9f14f415658590bd1c3a9, status: subsumed, depends_on: [patch-0031]}
+  - {patch: patch-0033, commit: 9f6d8ea55833741fa4ffeb225228dbf52f1a067d, depends_on: [patch-0021]}
+  - {patch: patch-0034, commit: 91a1d2589d38f6e824db21ea053caada0f00ff0d, depends_on: [patch-0004, patch-0031]}
+  - {patch: patch-0035-xusb, commit: adc17b228c1a333330ad3c9e6f820067a3f18718, depends_on: [patch-0015]}
+  - {patch: patch-0035-mgbe, commit: 32fc8f902633d261b00e53af99ad8aaa5b0c6e52, depends_on: [android-guest, patch-0031]}
+  - {patch: patch-0036, commit: 28ab9ccbcef4a76e757c4e7cd4c59dc0e703e3bd, depends_on: [patch-0003, patch-0031]}
+  - {patch: patch-0037, commit: 33217196c26f214fe9d077252d413458f2223d19, depends_on: [patch-0036]}
+  - {patch: patch-0038, commit: 24ad2267ac617e4c8a3449bb5a715299b3fe5c44, depends_on: [patch-0037]}
+  - {patch: patch-0039, commit: 4f2b5df0734adc8f4044d7e2610c4ec57fb0fa40, depends_on: [android-iommu]}
+  - {patch: patch-0040, commit: 07a4fb98fa3ed45f354d9b663fffa1eb7033633a, depends_on: [patch-0038, android-pviommu]}
+  - {patch: patch-0041, commit: a62ea5215093d4595de020d5ae55e2a74d274491, depends_on: [patch-0039, patch-0040]}
+
+ghaf:
+  old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
+  old_head: 6bdd5eaa903c2ca92a959bf0426aea18236b4726
+  archived_old_head: archive/pr2144-pre-kernel-repo-6bdd5eaa
+  rewritten_head: 5effb128640a185369b678b8d150da617c8b550e
+  hardware_validated_head: 5effb128640a185369b678b8d150da617c8b550e
+  flashed_replay_head: 7a4b163f76b2302bea90a32696aa20280bba185d
+  current_parent: 21e67aebdfad2a6ae924844c7cfb1901cb651a09
+  archived_pre_rebase_head: archive/pr2144-pre-pr2133-21e67a-7a4b163f
+  pull_request: https://github.com/tiiuae/ghaf/pull/2144
+  dependencies:
+    - id: ghaf-consumer
+      external_commit: a62ea5215093d4595de020d5ae55e2a74d274491
+      adaptation: one-external-input-shared-package-set
+      internal_commit: 5effb128640a185369b678b8d150da617c8b550e
+      gate: source-config-build-identified-agx-parity
+    - id: ghaf-parent
+      external_pull_request: 2133
+      external_commit: 21e67aebdfad2a6ae924844c7cfb1901cb651a09
+      adaptation: four-commit-rebase
+      internal_commit: 5effb128640a185369b678b8d150da617c8b550e
+      gate: range-diff-build-flash-runtime-parity
+  merged_history_not_dependencies: [2125]
+  old_patch_directory_files: 43
+  consumer_input: linux-pkvm
+  consumer_pin: a62ea5215093d4595de020d5ae55e2a74d274491
+  consumer_policy: one-source-commit-host-and-protected-guests
+
+validation:
+  code_oracle_tree: a8184041730181efe06aac7a7a30836e1e45cc6a
+  code_head: a62ea5215093d4595de020d5ae55e2a74d274491
+  code_tree_match: true
+  port_rehearsal_tree_match: true
+  port_rehearsal_range_diff: clean
+  next_stable_rehearsal: v7.1.8
+  next_stable_range_diff: all-equal-except-subsumed-patch-0032
+  generated_host_config_match: true
+  generated_host_config_sha256: bbc18bf6e28a1486e12b68ff4759cfbe438540db10370faa68483949962a43ca
+  generated_guest_config_match: behavioral-parity
+  rebuilt_image: /nix/store/cyqrbwnmqqhf1zxkbryh5ri0w1aiqpdm-nixos-image-sd-card-26.11.20260807.f13ff45-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+  rebuilt_image_size: 7486197261
+  rebuilt_image_sha256: 162b8c22af9bbc59d6c9d158c99d5224829c31bf0857db5bba48d71c8905ac36
+  runtime_parity: same-board-v55-passed
+  hardware:
+    model: NVIDIA Jetson AGX Orin Developer Kit
+    topo_serial: TOPOED73D35C
+    ecid: 0x80012344705DD3C96C0000000A0081C0
+    usb_instance: 1-1.2.3
+    agx_apx_product: "0955:7023"
+    nx_apx_absent: true
+    persistent_rcm_state_preserved: true
+    post_flash_other_agx_apx_not_targeted: 1-1.1.2.1
+  runtime_gates:
+    protected_nvhe: true
+    protected_vms: [admin-vm, net-vm, chromium-vm]
+    mgbe_bytes_each_direction: 8589934592
+    mgbe_probes_passed: 800
+    active_dma_teardown: passed
+    settled_netvm_cycles: 3
+    fault_scan: clean-except-existing-netvm-bpmp-boot-warning
+    dma_accounting_failures: 0
+  validated_tag: orin-pkvm-v55
+  validated_tag_commit: a62ea5215093d4595de020d5ae55e2a74d274491
+  original_validated_ghaf_head: 7acaec4eafe5768218e3b23a1fd68aa8a2613ca5
+  previous_validated_ghaf_head: 2ab6784e46df1e367a47ea4694edd5f9d6d9787a
+  validated_ghaf_head: 5effb128640a185369b678b8d150da617c8b550e
+  flashed_replay_ghaf_head: 7a4b163f76b2302bea90a32696aa20280bba185d
+  current_rebased_ghaf_head: 5effb128640a185369b678b8d150da617c8b550e
+  current_rebased_parent: 21e67aebdfad2a6ae924844c7cfb1901cb651a09
+  current_rebased_checks: [nix-fmt, reuse-lint, orin-crosvm-targets, crosvm-builds, full-cross-image]
+  current_rebased_range_diff_sha256: 05e83a01250f2a1fe8c0e5978bc21c7af82423e1fd10fe201915aa9091042fe1
+  artifact_identity_with_flashed_replay: exact
+  current_rebased_image: /nix/store/xb9h37f3cpc4bi5422lq8v8iw8fcpb6s-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+  current_rebased_image_size: 8378694838
+  current_rebased_image_sha256: 78ef31acc5072c09ecb5e4b9ef55a4d6f12d39d8349c1965779cb978ece1b85c
+  current_rebased_deployed_toplevel: /nix/store/8y9nrg37ss9knm2fc84mhpz4zq9g4jxc-nixos-system-ghaf-host-sd-card-26.11.20260819.ffb3c9b
+  current_rebased_generated_config_sha256:
+    host: 19279e899d857e3a25c2e3af4d440143a99eab310334295504b1991b866c82c2
+    admin_vm: b7df8e3c07c548540a7a9a057cefa80f68df053e3b514682f5a9b0922b8c5570
+    net_vm: 3ff5a5ac5acf69eeb26e862d72101c0b13e7fb63a5b9bbf287301b953a37735d
+    chromium_vm: cecf76b58c8732dae1633eeea9e0313982595f69a74ac7d2e108fa57a5a0887f
+  provider_pins:
+    jetpack_nixos: 9ad43a2697bc3da7e9b4911192607df6541b90e4
+    microvm: 0299f2d5faf597795ae78aab064eece23154b2b0
+    ghaf_crosvm_pr10_merge: 63e3c3482553212244aec55a3fee5646b37c98bd
+    ghaf_crosvm: aa2478bef0750cc4013f24aa2cda472346db4a93
+  hardware_rerun_after_parent_rebase: true
+  active_dma_harness: corrected-pipefail
+  protected_dma_accounting_samples: 315
