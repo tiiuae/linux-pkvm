@@ -9,6 +9,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
+#include <linux/pci.h>
 #include <linux/platform_device.h>
 
 #include <soc/tegra/mc.h>
@@ -187,17 +188,33 @@ static int
 tegra186_mc_lock_device_stream_id(struct tegra_mc *mc, struct device *dev)
 {
 #if IS_ENABLED(CONFIG_IOMMU_API)
+	struct device_node *np = dev->of_node;
 	struct of_phandle_args args;
 	unsigned long flags;
 	unsigned int i, index = 0;
+	bool pci_device = false;
+	bool locked = false;
 	u32 sid;
 	int err = 0;
 
 	if (!tegra_dev_iommu_get_stream_id(dev, &sid))
 		return -EINVAL;
 	sid &= MC_SID_STREAMID_OVERRIDE_MASK;
+#if IS_ENABLED(CONFIG_PCI)
+	pci_device = dev_is_pci(dev);
+	if (pci_device) {
+		struct pci_host_bridge *host;
 
-	while (!of_parse_phandle_with_args(dev->of_node, "interconnects",
+		host = pci_find_host_bridge(to_pci_dev(dev)->bus);
+		np = host->dev.of_node;
+		if (!np && host->dev.parent)
+			np = host->dev.parent->of_node;
+		if (!np)
+			return -ENODEV;
+	}
+#endif
+
+	while (!of_parse_phandle_with_args(np, "interconnects",
 					   "#interconnect-cells", index++, &args)) {
 		if (args.np == mc->dev->of_node && args.args_count) {
 			for (i = 0; i < mc->soc->num_clients; i++) {
@@ -209,6 +226,8 @@ tegra186_mc_lock_device_stream_id(struct tegra_mc *mc, struct device *dev)
 				spin_lock_irqsave(&mc->lock, flags);
 				err = tegra186_mc_lock_client_sid(mc, client, sid);
 				spin_unlock_irqrestore(&mc->lock, flags);
+				if (!err)
+					locked = true;
 				break;
 			}
 		}
@@ -216,6 +235,8 @@ tegra186_mc_lock_device_stream_id(struct tegra_mc *mc, struct device *dev)
 		if (err)
 			break;
 	}
+	if (pci_device && !err && !locked)
+		return -ENODEV;
 
 	return err;
 #else
