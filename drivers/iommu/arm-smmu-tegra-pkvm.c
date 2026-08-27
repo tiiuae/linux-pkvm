@@ -16,6 +16,7 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
+#include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/workqueue.h>
 
@@ -589,7 +590,15 @@ static bool pkvm_tegra_capable(struct device *dev, enum iommu_cap cap)
 {
 	switch (cap) {
 	case IOMMU_CAP_CACHE_COHERENCY:
-		return device_get_dma_attr(dev) == DEV_DMA_COHERENT;
+		/*
+		 * Preserve the existing Tegra PCI VFIO contract. The generic
+		 * Tegra SMMU frontend reports cache coherency for PCI devices so
+		 * VFIO can register them even though the firmware node is not
+		 * marked dma-coherent. Protected PCI assignment needs the same
+		 * capability from the pKVM frontend.
+		 */
+		return dev_is_pci(dev) ||
+		       device_get_dma_attr(dev) == DEV_DMA_COHERENT;
 	default:
 		return false;
 	}
