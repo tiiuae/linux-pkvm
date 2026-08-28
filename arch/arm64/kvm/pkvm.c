@@ -1133,12 +1133,87 @@ static int pkvm_reclaim_platform_device(struct device *dev, void *data)
 	return 0;
 }
 
+static int pkvm_assign_pci_device(struct device *dev, void *data)
+{
+	struct pci_dev *pdev;
+	struct resource *resource;
+	int index;
+	int ret;
+
+	if (!dev_is_pci(dev))
+		return -EOPNOTSUPP;
+
+	pdev = to_pci_dev(dev);
+	for (index = 0; index < PCI_STD_NUM_BARS; index++) {
+		resource = &pdev->resource[index];
+		if (!(resource->flags & IORESOURCE_MEM) ||
+		    !resource_size(resource))
+			continue;
+
+		ret = pkvm_donate_resource(resource);
+		if (ret)
+			goto err_reclaim;
+	}
+
+	return 0;
+
+err_reclaim:
+	while (index--) {
+		resource = &pdev->resource[index];
+		if ((resource->flags & IORESOURCE_MEM) &&
+		    resource_size(resource))
+			pkvm_reclaim_resource(resource);
+	}
+
+	return ret;
+}
+
+static int pkvm_reclaim_pci_device(struct device *dev, void *data)
+{
+	struct pci_dev *pdev;
+	struct resource *resource;
+	int index;
+
+	if (!dev_is_pci(dev))
+		return -EOPNOTSUPP;
+
+	pdev = to_pci_dev(dev);
+	for (index = 0; index < PCI_STD_NUM_BARS; index++) {
+		resource = &pdev->resource[index];
+		if ((resource->flags & IORESOURCE_MEM) &&
+		    resource_size(resource))
+			pkvm_reclaim_resource(resource);
+	}
+
+	return 0;
+}
+
+static int pkvm_assign_device(struct device *dev, void *data)
+{
+	if (dev_is_platform(dev))
+		return pkvm_assign_platform_device(dev, data);
+	if (dev_is_pci(dev))
+		return pkvm_assign_pci_device(dev, data);
+
+	return -EOPNOTSUPP;
+}
+
+static int pkvm_reclaim_device(struct device *dev, void *data)
+{
+	if (dev_is_platform(dev))
+		return pkvm_reclaim_platform_device(dev, data);
+	if (dev_is_pci(dev))
+		return pkvm_reclaim_pci_device(dev, data);
+
+	return -EOPNOTSUPP;
+}
+
 int kvm_arch_assign_device(struct device *dev)
 {
 	if (!is_protected_kvm_enabled())
 		return 0;
 
-	return pkvm_assign_platform_device(dev, NULL);
+	return pkvm_assign_device(dev, NULL);
 }
 
 int kvm_arch_assign_group(struct iommu_group *group)
@@ -1148,11 +1223,9 @@ int kvm_arch_assign_group(struct iommu_group *group)
 	if (!is_protected_kvm_enabled())
 		return 0;
 
-	ret = iommu_group_for_each_dev(group, NULL,
-				       pkvm_assign_platform_device);
+	ret = iommu_group_for_each_dev(group, NULL, pkvm_assign_device);
 	if (ret)
-		iommu_group_for_each_dev(group, NULL,
-					 pkvm_reclaim_platform_device);
+		iommu_group_for_each_dev(group, NULL, pkvm_reclaim_device);
 
 	return ret;
 }
@@ -1160,14 +1233,13 @@ int kvm_arch_assign_group(struct iommu_group *group)
 void kvm_arch_reclaim_device(struct device *dev)
 {
 	if (is_protected_kvm_enabled())
-		pkvm_reclaim_platform_device(dev, NULL);
+		pkvm_reclaim_device(dev, NULL);
 }
 
 void kvm_arch_reclaim_group(struct iommu_group *group)
 {
 	if (is_protected_kvm_enabled())
-		iommu_group_for_each_dev(group, NULL,
-					 pkvm_reclaim_platform_device);
+		iommu_group_for_each_dev(group, NULL, pkvm_reclaim_device);
 }
 
 void pkvm_pgtable_stage2_free_unlinked(struct kvm_pgtable_mm_ops *mm_ops, void *pgtable, s8 level)
