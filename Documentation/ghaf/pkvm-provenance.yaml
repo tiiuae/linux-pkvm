@@ -19,6 +19,8 @@ branches:
   port: port/android17-pkvm-v7.1.7-r1
   integration: integration/orin-pkvm-v7.1.7-r1
   integration_parent: ce9c31f559a956cf4603848329bfa4cc66c29205
+  integration_followup: integration/orin-pkvm-v7.1.7-r2
+  integration_followup_parent: e23a41d18ec23036ab5164adf5c79919b999a61d
 
 # Stable IDs shared with the RST dependency table. A dependency change updates
 # this list, the matching RST row, and the applicable validation evidence in
@@ -134,6 +136,26 @@ dependencies:
     adaptation: {status: no-generated-kernel-patch}
     internal: {consumer: admin-net-chromium-ordering-and-policy}
     gate: three-protected-vms-and-independent-netvm-recovery
+  - id: kernel-pci-wlan-r2
+    external: {owners: [linux-pci, tegra194-pcie, orin-pkvm-v55], base_commit: e23a41d18ec23036ab5164adf5c79919b999a61d}
+    adaptation: {status: local-followup-series, commits: [8186853a251720392c2374993d3650aca452e1ba, 0ef1f2cb9fa29c16cf539c501c32773d948fc8f6, f3a727c742220a2fe1c3c6d93ab66d901421e805, 343f55bdfe252a7cca3b96c09cf42eea4e83f78b, 70ff32e1b2a70314a5aaf0dc28ae4dc9d876fc6c, ac6d1ae9140dd3094e1a40939fcadf07b84daf8e, f2a0b9dc204debfb3dc5528a1dd81de7247c5ab2, 24e85e20b92b65cfae1b0881c98a391f32c346b0]}
+    internal: {consumer: protected-rtl8822ce-registration-reset-bar-dma-and-msi}
+    gate: build-traffic-active-teardown-cycles-and-clean-fault-scans
+  - id: microvm-pci-wlan
+    external: {owner: microvm-nix/microvm.nix, base_pull_request: 586, base_commit: 0299f2d5faf597795ae78aab064eece23154b2b0}
+    adaptation: {status: provider-owned-followup, pull_request: 589, commit: 254dccf3f126e22e929f3e6d32399a45f55cf977}
+    internal: {consumer: explicit-static-pci-assignment-with-pkvm-iommu}
+    gate: provider-check-ghaf-target-evaluation-and-agx-lifecycle
+  - id: ghaf-crosvm-pci-wlan
+    external: {owner: tiiuae/ghaf-crosvm, base_pull_request: 12, base_commit: aa2478bef0750cc4013f24aa2cda472346db4a93}
+    adaptation: {status: provider-owned-followup, pull_request: 13, commits: [0b9383f74be713f36edb90daab44e40900930f4f, 215982f8e1d6601cbdd230305aa9b7c02682ba64, 718c58c3606bd6c33069fb48b716bf7297287833]}
+    internal: {consumer: guest-pviommu-map-vfio-device-registration-and-reset-safe-shutdown}
+    gate: crosvm-builds-live-msi-active-teardown-and-three-cycles
+  - id: ghaf-pci-wlan-consumer
+    external: {dependencies: [kernel-pci-wlan-r2, microvm-pci-wlan, ghaf-crosvm-pci-wlan]}
+    adaptation: {status: ghaf-followup, pull_request: 2188, commits: [97a04ae07521a1570a07b7593096a8c47a7ac87c, a18dfa2f1abcacca1cba48c62984a148c91b0888, e48209099c0ba66c1e344807c8705d5ef07717ae]}
+    internal: {consumer: protected-netvm-onboard-rtl8822ce}
+    gate: full-image-and-identified-agx-wifi-runtime-campaign
 
 port_commits:
   - id: android-alloc
@@ -207,6 +229,16 @@ integration_commits:
   - {patch: patch-0039, commit: 4f2b5df0734adc8f4044d7e2610c4ec57fb0fa40, depends_on: [android-iommu]}
   - {patch: patch-0040, commit: 07a4fb98fa3ed45f354d9b663fffa1eb7033633a, depends_on: [patch-0038, android-pviommu]}
   - {patch: patch-0041, commit: a62ea5215093d4595de020d5ae55e2a74d274491, depends_on: [patch-0039, patch-0040]}
+
+integration_followup_commits:
+  - {id: pci-register, commit: 8186853a251720392c2374993d3650aca452e1ba, depends_on: [android-device, android-vfio, orin-vfio]}
+  - {id: pci-rtl8822ce-reset, commit: 0ef1f2cb9fa29c16cf539c501c32773d948fc8f6, depends_on: [pci-register]}
+  - {id: pci-stream-lock, commit: f3a727c742220a2fe1c3c6d93ab66d901421e805, depends_on: [pci-register, orin-streams]}
+  - {id: pci-vfio-admission, commit: 343f55bdfe252a7cca3b96c09cf42eea4e83f78b, depends_on: [pci-register, orin-vfio]}
+  - {id: pci-host-probe, commit: 70ff32e1b2a70314a5aaf0dc28ae4dc9d876fc6c, depends_on: [pci-register, pci-stream-lock, pci-vfio-admission]}
+  - {id: pci-dma-ownership, commit: ac6d1ae9140dd3094e1a40939fcadf07b84daf8e, depends_on: [pci-host-probe, orin-dma]}
+  - {id: pci-bar-donation, commit: f2a0b9dc204debfb3dc5528a1dd81de7247c5ab2, depends_on: [pci-register, android-device]}
+  - {id: pci-msi-aperture, commit: 24e85e20b92b65cfae1b0881c98a391f32c346b0, depends_on: [android-pviommu, pci-vfio-admission]}
 
 ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
@@ -297,3 +329,30 @@ validation:
   hardware_rerun_after_parent_rebase: true
   active_dma_harness: corrected-pipefail
   protected_dma_accounting_samples: 315
+  pci_wlan_followup:
+    kernel_commit: 24e85e20b92b65cfae1b0881c98a391f32c346b0
+    crosvm_commit: 718c58c3606bd6c33069fb48b716bf7297287833
+    microvm_commit: 254dccf3f126e22e929f3e6d32399a45f55cf977
+    ghaf_commit: e48209099c0ba66c1e344807c8705d5ef07717ae
+    ghaf_pull_request: 2188
+    flashed_image: /nix/store/lvh3d0l3fcy4bqxillm5r2s8kfpmn8l6-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+    flashed_image_size: 8378722232
+    flashed_image_sha256: c6483a71368e642b79b285f09e2237a054308a5de72f9fb0895b85eac766bc32
+    pinned_rebuild_image: /nix/store/pldypg6g14298i33x5ymmqlv2vxmn2i3-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+    pinned_rebuild_image_size: 8379136200
+    pinned_rebuild_image_sha256: eb71c6e37e22f80fb7da6fff20ea9d2811ed5455990539542f54ba6b62422099
+    artifact_identity_with_flashed_image: separate-realization-source-trees-exact
+    boot_authentication: NS
+    secure_boot_toggle_used: false
+    wifi_guest_bdf: "0000:00:1f.0"
+    wifi_vendor_device: "10ec:c822"
+    wifi_driver: rtw88_8822ce
+    wifi_msi_irq: 35
+    wifi_traffic: passed
+    active_wifi_teardown: passed
+    settled_netvm_cycles: 3
+    service_results: success
+    fault_scan: clean
+    dma_accounting_failures: 0
+    flash_log: /home/vadikas/Work/tmp-archive/pkvm-wifi-d0-reset-flash.oFSxAd/flash.log
+    runtime_log: /home/vadikas/Work/tmp-archive/pkvm-wifi-d0-reset-runtime.gRlinq/serial.log
