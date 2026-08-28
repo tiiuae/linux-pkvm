@@ -4,9 +4,10 @@
 Ghaf Orin pKVM Provenance
 ==========================
 
-This document describes the immutable ``orin-pkvm-v55`` source generation.
-The machine-readable source of truth is ``pkvm-provenance.yaml`` in this
-directory.  Update both files in one commit whenever a dependency changes.
+This document describes the immutable ``orin-pkvm-v55`` source generation and
+the validated protected-PCI WLAN R2 follow-up.  The machine-readable source of
+truth is ``pkvm-provenance.yaml`` in this directory.  Update both files in one
+commit whenever a dependency changes.
 
 Layer Contract
 ==============
@@ -15,7 +16,9 @@ Layer Contract
 ``port/android17-pkvm-v7.1.7-r1`` branch contains only Android-derived pKVM
 device-assignment work.  The ``integration/orin-pkvm-v7.1.7-r1`` branch has
 the port head as its exact first parent and adds only Ghaf/Orin integration,
-diagnostics, and this provenance record.
+diagnostics, and this provenance record.  The
+``integration/orin-pkvm-v7.1.7-r2`` branch starts at the immutable R1 head and
+adds the protected-PCI WLAN series without changing the v55 tag.
 
 Validated branches are immutable.  A new Linux stable base creates a new
 ``v7.1.x-rN`` port and integration pair instead of rewriting this generation.
@@ -148,6 +151,26 @@ minimum evidence that must be refreshed when the row changes.
      - No generated kernel patch
      - AdminVM, NetVM, ChromiumVM ordering and policy
      - Three protected VMs and independent NetVM recovery
+   * - kernel-pci-wlan-r2
+     - Linux PCI, Tegra194 PCIe, and ``orin-pkvm-v55`` interfaces
+     - Eight commits, ``8186853a2517`` through ``24e85e20b92b``
+     - Protected RTL8822CE registration, reset, BAR, DMA, and MSI handling
+     - Build, traffic, active teardown, cycles, and clean fault scans
+   * - microvm-pci-wlan
+     - ``microvm-nix/microvm.nix#586`` interfaces
+     - Draft PR #589, ``254dccf3f126``
+     - Explicit static PCI assignment with ``pkvm-iommu``
+     - Provider check, Ghaf target evaluation, and AGX lifecycle
+   * - ghaf-crosvm-pci-wlan
+     - ``tiiuae/ghaf-crosvm#12`` interfaces
+     - Draft PR #13, ``0b9383f74be7`` through ``718c58c3606b``
+     - Guest pvIOMMU map, VFIO device registration, reset-safe shutdown
+     - Crosvm builds, live MSI, active teardown, and three cycles
+   * - ghaf-pci-wlan-consumer
+     - Exact R2 kernel, microvm, and Crosvm commits above
+     - Draft Ghaf PR #2188, ``e48209099c0b``
+     - Assign onboard ``10ec:c822`` to protected NetVM
+     - Full image and identified-AGX Wi-Fi runtime campaign
 
 Source Anchors
 ==============
@@ -264,3 +287,53 @@ current range-diff has SHA-256
 ``05e83a01250f2a1fe8c0e5978bc21c7af82423e1fd10fe201915aa9091042fe1``.
 The accepted image boots host toplevel ``8y9nrg37ss9k`` and has SHA-256
 ``78ef31acc5072c09ecb5e4b9ef55a4d6f12d39d8349c1965779cb978ece1b85c``.
+
+Protected PCI WLAN R2 Boundary
+================================
+
+The R2 code boundary is ``24e85e20b92b``.  It is eight commits on top of the
+documented R1 head and does not move or reinterpret ``orin-pkvm-v55``.  Ghaf
+draft PR #2188 pins that exact kernel commit, ghaf-crosvm draft PR #13 at
+``718c58c3606b``, and microvm.nix draft PR #589 at ``254dccf3f126``.  Its
+consumer commit is ``e48209099c0b``.
+
+The image flashed for the R2 hardware campaign is
+``/nix/store/lvh3d0l3fcy4bqxillm5r2s8kfpmn8l6-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu``.
+It is 8,378,722,232 bytes with SHA-256
+``c6483a71368e642b79b285f09e2237a054308a5de72f9fb0895b85eac766bc32``.
+The flash used only the long ``--signed-sd-image`` option, never ``-s`` or a
+secure-boot request, and reported ``Boot Authentication: NS``.  It targeted
+only AGX TOPO serial ``TOPOED73D35C``, USB instance ``1-1.2.3``, and ECID
+``0x80012344705DD3C96C0000000A0081C0`` after proving NX APX was absent.
+Persistent ``/tmp/rcm_state`` remained unchanged.
+
+Protected nVHE and AdminVM, NetVM, and ChromiumVM all passed.  NetVM attached
+physical ``0001:01:00.0`` as guest ``0000:00:1f.0``, identified
+``10ec:c822``, loaded the RTL8822CE firmware, and used MSI IRQ 35.  Association
+to the requested WLAN, Wi-Fi-bound ICMP, DNS, and HTTPS all passed.  Active
+Wi-Fi teardown returned service success, and three complete stop/start cycles
+each prepared the endpoint in D0 with memory decoding enabled and bus
+mastering cleared before the mandatory pKVM reset.  The final cycle passed
+10/10 probes and HTTPS status 200.  AdminVM and ChromiumVM remained unchanged
+through the campaign.
+
+The final host and guest scans contained no Maple Tree, pvIOMMU failure,
+SLUB, SMMU fault, AER unsupported request, watchdog, lockup, RCU stall, BUG,
+or panic signature.  Protected-DMA diagnostics retained ``failures=0``.
+Crosvm still emits closed-channel and dynamic-mapping cleanup messages during
+orderly shutdown; the units nevertheless exit successfully, so those messages
+are recorded as non-fatal cleanup behavior rather than omitted from evidence.
+The retained flash and serial records are
+``/home/vadikas/Work/tmp-archive/pkvm-wifi-d0-reset-flash.oFSxAd/flash.log``
+and
+``/home/vadikas/Work/tmp-archive/pkvm-wifi-d0-reset-runtime.gRlinq/serial.log``.
+
+An independent build from only the published immutable pins also passed.  Its
+image is
+``/nix/store/pldypg6g14298i33x5ymmqlv2vxmn2i3-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu``;
+the compressed file is 8,379,136,200 bytes with SHA-256
+``eb71c6e37e22f80fb7da6fff20ea9d2811ed5455990539542f54ba6b62422099``.
+It is a separate Nix realization from the locally sourced flashed artifact,
+not a byte-identity claim.  The kernel, Crosvm, and microvm source trees used
+for the runtime campaign are exactly the trees published at the pinned
+commits above.

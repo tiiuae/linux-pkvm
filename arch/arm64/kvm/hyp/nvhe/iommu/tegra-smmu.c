@@ -27,6 +27,7 @@
 
 #define PKVM_TEGRA_TLB_SPINS		1000000
 #define PKVM_TEGRA_MGBE_RESET_SPINS	2000000
+#define PKVM_TEGRA_RTW_RESET_SPINS	2000000
 #define PKVM_TEGRA_ATS_SPINS		100000
 
 /* Temporary boot diagnostics for the nvidia-jetson-orin-agx-pkvm-debug target. */
@@ -46,6 +47,18 @@
 #define PKVM_TEGRA_MGBE_WRAP_INTR_ENABLE	0x8704
 #define PKVM_TEGRA_MGBE_DMA_MODE		0x3000
 #define PKVM_TEGRA_MGBE_DMA_MODE_SWR	BIT(0)
+
+#define PKVM_TEGRA_RTW8822CE_BAR_BASE	0x20a8000000ULL
+#define PKVM_TEGRA_RTW_HIMR0		0x00b0
+#define PKVM_TEGRA_RTW_HIMR1		0x00b8
+#define PKVM_TEGRA_RTW_HIMR3		0x10b8
+#define PKVM_TEGRA_RTW_SYS_PW_CTRL	0x0004
+#define PKVM_TEGRA_RTW_CR		0x0100
+#define PKVM_TEGRA_RTW_PCI_CTRL		0x0300
+#define PKVM_TEGRA_RTW_MAC_TRX_ENABLE	GENMASK(7, 0)
+#define PKVM_TEGRA_RTW_RST_TRXDMA_INTF	BIT(20)
+#define PKVM_TEGRA_RTW_RX_TAG_EN		BIT(15)
+#define PKVM_TEGRA_RTW_PFM_WOWL		BIT(3)
 
 struct pkvm_tegra_hyp_smmu {
 	struct pkvm_tegra_smmu_device *params;
@@ -104,7 +117,7 @@ static struct pkvm_tegra_mgbe tegra_mgbe0 = {
 	.mac_base = PKVM_TEGRA_MGBE0_MAC_BASE,
 };
 
-static int tegra_mgbe_reclaim_reset_page(phys_addr_t phys)
+static int tegra_reclaim_device_reset_page(phys_addr_t phys)
 {
 	int ret;
 
@@ -116,7 +129,7 @@ static int tegra_mgbe_reclaim_reset_page(phys_addr_t phys)
 					 PAGE_HYP_DEVICE);
 }
 
-static int tegra_mgbe_release_reset_page(phys_addr_t phys)
+static int tegra_release_device_reset_page(phys_addr_t phys)
 {
 	return pkvm_hyp_reclaim_mmio(phys >> PAGE_SHIFT, 1);
 }
@@ -141,12 +154,12 @@ static int tegra_mgbe_reset(void *cookie, bool host_to_guest)
 	 * then return them to the host before generic device reclaim runs.
 	 */
 	if (!host_to_guest) {
-		ret = tegra_mgbe_reclaim_reset_page(intr_phys);
+		ret = tegra_reclaim_device_reset_page(intr_phys);
 		if (ret)
 			return ret;
 		intr_reclaimed = true;
 
-		ret = tegra_mgbe_reclaim_reset_page(dma_phys);
+		ret = tegra_reclaim_device_reset_page(dma_phys);
 		if (ret)
 			goto out_release;
 		dma_reclaimed = true;
@@ -167,9 +180,9 @@ static int tegra_mgbe_reset(void *cookie, bool host_to_guest)
 	ret = -ETIMEDOUT;
 
 out_release:
-	if (dma_reclaimed && tegra_mgbe_release_reset_page(dma_phys) && !ret)
+	if (dma_reclaimed && tegra_release_device_reset_page(dma_phys) && !ret)
 		ret = -EIO;
-	if (intr_reclaimed && tegra_mgbe_release_reset_page(intr_phys) && !ret)
+	if (intr_reclaimed && tegra_release_device_reset_page(intr_phys) && !ret)
 		ret = -EIO;
 	return ret;
 }
@@ -178,12 +191,130 @@ static struct pkvm_device_ops tegra_mgbe_ops = {
 	.reset = tegra_mgbe_reset,
 };
 
+struct pkvm_tegra_rtw8822ce {
+	phys_addr_t bar_base;
+};
+
+static struct pkvm_tegra_rtw8822ce tegra_rtw8822ce = {
+	.bar_base = PKVM_TEGRA_RTW8822CE_BAR_BASE,
+};
+
+static void tegra_rtw_write8_mask(void __iomem *bar, u32 offset,
+				  u8 mask, u8 value)
+{
+	u8 reg = readb_relaxed(bar + offset);
+
+	reg &= ~mask;
+	reg |= value & mask;
+	writeb_relaxed(reg, bar + offset);
+}
+
+static bool tegra_rtw_power_down_poll(void __iomem *bar)
+{
+	unsigned int spin;
+	u8 value;
+
+	for (spin = 0; spin < PKVM_TEGRA_RTW_RESET_SPINS; spin++) {
+		if (!(readb_relaxed(bar + 0x0005) & BIT(1)))
+			return true;
+		cpu_relax();
+	}
+
+	/* Match the upstream PCI power-sequence recovery before retrying. */
+	value = readb_relaxed(bar + PKVM_TEGRA_RTW_SYS_PW_CTRL);
+	writeb_relaxed(value | PKVM_TEGRA_RTW_PFM_WOWL,
+		       bar + PKVM_TEGRA_RTW_SYS_PW_CTRL);
+	writeb_relaxed(value & ~PKVM_TEGRA_RTW_PFM_WOWL,
+		       bar + PKVM_TEGRA_RTW_SYS_PW_CTRL);
+	for (spin = 0; spin < PKVM_TEGRA_RTW_RESET_SPINS; spin++) {
+		if (!(readb_relaxed(bar + 0x0005) & BIT(1)))
+			return true;
+		cpu_relax();
+	}
+
+	return false;
+}
+
+static int tegra_rtw8822ce_reset(void *cookie, bool host_to_guest)
+{
+	struct pkvm_tegra_rtw8822ce *rtw = cookie;
+	phys_addr_t first_page = rtw->bar_base;
+	phys_addr_t second_page = rtw->bar_base + PAGE_SIZE;
+	void __iomem *bar = hyp_phys_to_virt(rtw->bar_base);
+	bool first_reclaimed = false;
+	bool second_reclaimed = false;
+	u32 value;
+	int ret = 0;
+
+	if (!host_to_guest) {
+		ret = tegra_reclaim_device_reset_page(first_page);
+		if (ret)
+			return ret;
+		first_reclaimed = true;
+
+		ret = tegra_reclaim_device_reset_page(second_page);
+		if (ret)
+			goto out_release;
+		second_reclaimed = true;
+	}
+
+	/* Quiesce interrupts and both MAC and host-interface DMA engines. */
+	writel_relaxed(0, bar + PKVM_TEGRA_RTW_HIMR0);
+	writel_relaxed(0, bar + PKVM_TEGRA_RTW_HIMR1);
+	writel_relaxed(0, bar + PKVM_TEGRA_RTW_HIMR3);
+	value = readl_relaxed(bar + PKVM_TEGRA_RTW_CR);
+	writel_relaxed(value & ~PKVM_TEGRA_RTW_MAC_TRX_ENABLE,
+		       bar + PKVM_TEGRA_RTW_CR);
+	value = readl_relaxed(bar + PKVM_TEGRA_RTW_PCI_CTRL);
+	writel_relaxed(value | PKVM_TEGRA_RTW_RST_TRXDMA_INTF |
+		       PKVM_TEGRA_RTW_RX_TAG_EN,
+		       bar + PKVM_TEGRA_RTW_PCI_CTRL);
+
+	/* RTL8822CE PCI card-disable sequence from the upstream rtw88 driver. */
+	tegra_rtw_write8_mask(bar, 0x0093, BIT(3), 0);
+	tegra_rtw_write8_mask(bar, 0x001f, 0xff, 0);
+	tegra_rtw_write8_mask(bar, 0x00ef, 0xff, 0);
+	tegra_rtw_write8_mask(bar, 0x1045, BIT(4), 0);
+	tegra_rtw_write8_mask(bar, 0x0049, BIT(1), 0);
+	tegra_rtw_write8_mask(bar, 0x0006, BIT(0), BIT(0));
+	tegra_rtw_write8_mask(bar, 0x0002, BIT(1), 0);
+	tegra_rtw_write8_mask(bar, 0x0005, BIT(1), BIT(1));
+	if (!tegra_rtw_power_down_poll(bar)) {
+		ret = -ETIMEDOUT;
+		goto out_release;
+	}
+	tegra_rtw_write8_mask(bar, 0x0067, BIT(5), 0);
+	tegra_rtw_write8_mask(bar, 0x0081, BIT(7) | BIT(6), 0);
+	tegra_rtw_write8_mask(bar, 0x0090, BIT(1), 0);
+	tegra_rtw_write8_mask(bar, 0x0092, 0xff, 0x20);
+	tegra_rtw_write8_mask(bar, 0x0093, 0xff, 0x04);
+	tegra_rtw_write8_mask(bar, 0x0005, BIT(2), BIT(2));
+
+out_release:
+	if (second_reclaimed &&
+	    tegra_release_device_reset_page(second_page) && !ret)
+		ret = -EIO;
+	if (first_reclaimed &&
+	    tegra_release_device_reset_page(first_page) && !ret)
+		ret = -EIO;
+	return ret;
+}
+
+static struct pkvm_device_ops tegra_rtw8822ce_ops = {
+	.reset = tegra_rtw8822ce_reset,
+};
+
 static void tegra_init_devices(void)
 {
 	int ret;
 
 	ret = pkvm_device_register_ops(tegra_mgbe0.hv_base, &tegra_mgbe_ops,
 				       &tegra_mgbe0);
+	WARN_ON(ret && ret != -ENODEV);
+
+	ret = pkvm_device_register_ops(tegra_rtw8822ce.bar_base,
+				       &tegra_rtw8822ce_ops,
+				       &tegra_rtw8822ce);
 	WARN_ON(ret && ret != -ENODEV);
 }
 

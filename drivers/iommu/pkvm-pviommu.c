@@ -3,10 +3,11 @@
  * Copyright (C) 2023 Google LLC
  * Author: Mostafa Saleh <smostafa@google.com>
  */
-#include <linux/of_platform.h>
 #include <linux/arm-smccc.h>
 #include <linux/iommu.h>
 #include <linux/maple_tree.h>
+#include <linux/of_address.h>
+#include <linux/of_platform.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/xarray.h>
@@ -403,8 +404,43 @@ static struct iommu_group *pviommu_device_group(struct device *dev)
 	}
 }
 
+static void pviommu_get_resv_regions(struct device *dev,
+				      struct list_head *head)
+{
+	struct iommu_resv_region *region;
+	struct device_node *msi_node;
+	struct resource res;
+
+	if (!dev_is_pci(dev))
+		return;
+
+	/*
+	 * PCI MSI configuration is virtualised by the VMM, so MSI writes do not
+	 * traverse the guest's pvIOMMU domain.  Advertise the virtual ITS aperture
+	 * as a hardware MSI window: this keeps the DMA cookie from trying to map
+	 * the ITS MMIO page as guest RAM through KVM_PVIOMMU_OP_MAP_PAGES.
+	 */
+	msi_node = of_parse_phandle(pci_bus_to_OF_node(to_pci_dev(dev)->bus),
+				    "msi-parent", 0);
+	if (!msi_node)
+		return;
+
+	if (of_address_to_resource(msi_node, 0, &res))
+		goto out_put_node;
+
+	region = iommu_alloc_resv_region(res.start, resource_size(&res),
+					 IOMMU_WRITE | IOMMU_NOEXEC | IOMMU_MMIO,
+					 IOMMU_RESV_MSI, GFP_KERNEL);
+	if (region)
+		list_add_tail(&region->list, head);
+
+out_put_node:
+	of_node_put(msi_node);
+}
+
 static struct iommu_ops pviommu_ops = {
 	.device_group		= pviommu_device_group,
+	.get_resv_regions	= pviommu_get_resv_regions,
 	.of_xlate		= pviommu_of_xlate,
 	.probe_device		= pviommu_probe_device,
 	.release_device		= pviommu_release_device,

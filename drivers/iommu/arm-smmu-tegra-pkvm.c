@@ -10,12 +10,14 @@
 #include <asm/kvm_pkvm.h>
 
 #include <linux/bitfield.h>
+#include <linux/fwnode.h>
 #include <linux/idr.h>
 #include <linux/io.h>
 #include <linux/iommu.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
+#include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/workqueue.h>
 
@@ -589,7 +591,15 @@ static bool pkvm_tegra_capable(struct device *dev, enum iommu_cap cap)
 {
 	switch (cap) {
 	case IOMMU_CAP_CACHE_COHERENCY:
-		return device_get_dma_attr(dev) == DEV_DMA_COHERENT;
+		/*
+		 * Preserve the existing Tegra PCI VFIO contract. The generic
+		 * Tegra SMMU frontend reports cache coherency for PCI devices so
+		 * VFIO can register them even though the firmware node is not
+		 * marked dma-coherent. Protected PCI assignment needs the same
+		 * capability from the pKVM frontend.
+		 */
+		return dev_is_pci(dev) ||
+		       device_get_dma_attr(dev) == DEV_DMA_COHERENT;
 	default:
 		return false;
 	}
@@ -747,8 +757,16 @@ static int pkvm_tegra_register_iommu(struct device *dev, void *data)
 		dev_err(dev, "failed to register pKVM IOMMU %llu: %d\n",
 			smmu->id, ret);
 		iommu_device_sysfs_remove(&smmu->iommu);
+		return ret;
 	}
-	return ret;
+
+	/*
+	 * The platform device was bound before its IOMMU provider became ready.
+	 * Refresh its firmware links so consumers that deferred on the provider
+	 * are retried now that iommu_device_register() has completed.
+	 */
+	fw_devlink_refresh_fwnode(dev_fwnode(dev));
+	return 0;
 }
 
 static int pkvm_tegra_init_driver(void)
