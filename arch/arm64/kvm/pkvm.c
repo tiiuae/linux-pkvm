@@ -7,6 +7,7 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/device.h>
+#include <linux/device/driver.h>
 #include <linux/interval_tree_generic.h>
 #include <linux/iommu.h>
 #include <linux/jiffies.h>
@@ -675,6 +676,14 @@ static int __init finalize_pkvm(void)
 	ret = kvm_iommu_init_driver();
 	if (ret && ret != -ENODEV)
 		return ret;
+
+	/*
+	 * The pKVM IOMMU driver is the firmware supplier for devices that can
+	 * themselves supply clocks, resets, power domains and interconnects to a
+	 * protected PCI host. Drain the deferred-probe chain unblocked by binding
+	 * that driver before requesting a synchronous attach of the host below.
+	 */
+	wait_for_device_probe();
 
 	ret = pkvm_probe_protected_pci_hosts();
 	if (ret)

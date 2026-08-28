@@ -16,6 +16,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/interconnect.h>
 #include <linux/interrupt.h>
+#include <linux/iommu.h>
 #include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -263,6 +264,7 @@ struct tegra_pcie_dw {
 	bool link_state;
 	bool update_fc_fixup;
 	bool enable_ext_refclk;
+	bool dma_owner_claimed;
 	u8 init_link_width;
 	u32 msi_ctrl_int;
 	u32 num_lanes;
@@ -294,6 +296,40 @@ struct tegra_pcie_dw {
 static inline struct tegra_pcie_dw *to_tegra_pcie(struct dw_pcie *pci)
 {
 	return container_of(pci, struct tegra_pcie_dw, pci);
+}
+
+static int tegra_pcie_claim_dma_owner(struct tegra_pcie_dw *pcie)
+{
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_ARM_SMMU_TEGRA_PKVM))
+		return 0;
+
+	ret = iommu_device_use_default_domain(pcie->dev);
+	if (!ret)
+		pcie->dma_owner_claimed = true;
+
+	return ret;
+}
+
+static void tegra_pcie_release_dma_owner(struct tegra_pcie_dw *pcie)
+{
+	if (!pcie->dma_owner_claimed)
+		return;
+
+	iommu_device_unuse_default_domain(pcie->dev);
+	pcie->dma_owner_claimed = false;
+}
+
+static bool tegra_pcie_needs_dma_owner(struct tegra_pcie_dw *pcie)
+{
+	struct dw_pcie *pci = &pcie->pci;
+	struct dw_pcie_rp *pp = &pci->pp;
+
+	if (pcie->of_data->mode == DW_PCIE_EP_TYPE || pci->edma.dw)
+		return true;
+
+	return pp->use_imsi_rx && upper_32_bits(pp->cfg0_base);
 }
 
 static inline void appl_writel(struct tegra_pcie_dw *pcie, const u32 value,
@@ -2280,6 +2316,12 @@ static int tegra_pcie_dw_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	ret = tegra_pcie_claim_dma_owner(pcie);
+	if (ret) {
+		tegra_bpmp_put(pcie->bpmp);
+		return dev_err_probe(dev, ret, "failed to claim DMA ownership\n");
+	}
+
 	switch (pcie->of_data->mode) {
 	case DW_PCIE_RC_TYPE:
 		ret = devm_request_irq(dev, pp->irq, tegra_pcie_rp_irq_handler,
@@ -2293,8 +2335,9 @@ static int tegra_pcie_dw_probe(struct platform_device *pdev)
 		ret = tegra_pcie_config_rp(pcie);
 		if (ret && ret != -ENOMEDIUM)
 			goto fail;
-		else
-			return 0;
+		if (!tegra_pcie_needs_dma_owner(pcie))
+			tegra_pcie_release_dma_owner(pcie);
+		return 0;
 		break;
 
 	case DW_PCIE_EP_TYPE:
@@ -2323,6 +2366,7 @@ static int tegra_pcie_dw_probe(struct platform_device *pdev)
 	}
 
 fail:
+	tegra_pcie_release_dma_owner(pcie);
 	tegra_bpmp_put(pcie->bpmp);
 	return ret;
 }
@@ -2349,6 +2393,7 @@ static void tegra_pcie_dw_remove(struct platform_device *pdev)
 	tegra_bpmp_put(pcie->bpmp);
 	if (pcie->pex_refclk_sel_gpiod)
 		gpiod_set_value(pcie->pex_refclk_sel_gpiod, 0);
+	tegra_pcie_release_dma_owner(pcie);
 }
 
 static int tegra_pcie_dw_suspend(struct device *dev)
@@ -2563,6 +2608,7 @@ static struct platform_driver tegra_pcie_dw_driver = {
 	.probe = tegra_pcie_dw_probe,
 	.remove = tegra_pcie_dw_remove,
 	.shutdown = tegra_pcie_dw_shutdown,
+	.driver_managed_dma = IS_ENABLED(CONFIG_ARM_SMMU_TEGRA_PKVM),
 	.driver = {
 		.name	= "tegra194-pcie",
 		.pm = &tegra_pcie_dw_pm_ops,

@@ -10,6 +10,7 @@
 #include <asm/kvm_pkvm.h>
 
 #include <linux/bitfield.h>
+#include <linux/fwnode.h>
 #include <linux/idr.h>
 #include <linux/io.h>
 #include <linux/iommu.h>
@@ -756,8 +757,16 @@ static int pkvm_tegra_register_iommu(struct device *dev, void *data)
 		dev_err(dev, "failed to register pKVM IOMMU %llu: %d\n",
 			smmu->id, ret);
 		iommu_device_sysfs_remove(&smmu->iommu);
+		return ret;
 	}
-	return ret;
+
+	/*
+	 * The platform device was bound before its IOMMU provider became ready.
+	 * Refresh its firmware links so consumers that deferred on the provider
+	 * are retried now that iommu_device_register() has completed.
+	 */
+	fw_devlink_refresh_fwnode(dev_fwnode(dev));
+	return 0;
 }
 
 static int pkvm_tegra_init_driver(void)
