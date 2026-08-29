@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
-schema: 2
+schema: 3
 generation: orin-pkvm-v55
 
 sources:
@@ -21,6 +21,8 @@ branches:
   integration_parent: ce9c31f559a956cf4603848329bfa4cc66c29205
   integration_followup: integration/orin-pkvm-v7.1.7-r2
   integration_followup_parent: e23a41d18ec23036ab5164adf5c79919b999a61d
+  integration_r3: integration/orin-pkvm-v7.1.7-r3
+  integration_r3_parent: f426336ea21151f862bec492403b5fbb1a98617f
 
 # Stable IDs shared with the RST dependency table. A dependency change updates
 # this list, the matching RST row, and the applicable validation evidence in
@@ -141,6 +143,21 @@ dependencies:
     adaptation: {status: local-followup-series, commits: [8186853a251720392c2374993d3650aca452e1ba, 0ef1f2cb9fa29c16cf539c501c32773d948fc8f6, f3a727c742220a2fe1c3c6d93ab66d901421e805, 343f55bdfe252a7cca3b96c09cf42eea4e83f78b, 70ff32e1b2a70314a5aaf0dc28ae4dc9d876fc6c, ac6d1ae9140dd3094e1a40939fcadf07b84daf8e, f2a0b9dc204debfb3dc5528a1dd81de7247c5ab2, 24e85e20b92b65cfae1b0881c98a391f32c346b0]}
     internal: {consumer: protected-rtl8822ce-registration-reset-bar-dma-and-msi}
     gate: build-traffic-active-teardown-cycles-and-clean-fault-scans
+  - id: kernel-guivm-reset-r3
+    external: {owners: [linux-pkvm-device-lifecycle, linux-host1x, nvidia-l4t-r36.5-gpu-display], base_commit: f426336ea21151f862bec492403b5fbb1a98617f}
+    adaptation: {status: source-derived-local-followup, commit: 262b04e976f7d6e37cd97499a90d46dd77553732, mapping: gui_vm_r3.reset_contract}
+    internal: {consumer: protected-accelerated-guivm-eleven-platform-resources}
+    gate: kernel-build-protected-boot-accelerated-display-repeated-teardown
+  - id: jetpack-guivm-linux71
+    external: {owners: [nvidia-l4t-r36.5-gpu-display, linux-7.1-apis], base_commit: 9ad43a2697bc3da7e9b4911192607df6541b90e4}
+    adaptation: {status: provider-owned-followup, commits: [6d1f6fbf04b39bbc86c9d2deaaa6e8c3f8248c95, ec26ef0dac4ffba1e6bc15e79c3989b801359f6f]}
+    internal: {consumer: linux-7.1-accelerated-guivm-module-closure-and-devfreq-governor}
+    gate: full-cross-image-and-identified-agx-unprotected-gui-runtime
+  - id: ghaf-guivm-linux71
+    external: {dependencies: [jetpack-guivm-linux71, ghaf-parent, ghaf-pci-wlan-consumer]}
+    adaptation: {status: ghaf-intermediate-followup, commit: 21f986176ee4b9a048e7f02748b3f26d21b4dc02}
+    internal: {consumer: unprotected-accelerated-guivm-before-protected-composition}
+    gate: linux-7.1.8-nvhost-podgov-dp1-greetd-clean-devfreq-fault-scan
   - id: microvm-pci-wlan
     external: {owner: microvm-nix/microvm.nix, base_pull_request: 586, base_commit: 0299f2d5faf597795ae78aab064eece23154b2b0}
     adaptation: {status: provider-owned-followup, pull_request: 589, commit: 254dccf3f126e22e929f3e6d32399a45f55cf977}
@@ -239,6 +256,61 @@ integration_followup_commits:
   - {id: pci-dma-ownership, commit: ac6d1ae9140dd3094e1a40939fcadf07b84daf8e, depends_on: [pci-host-probe, orin-dma]}
   - {id: pci-bar-donation, commit: f2a0b9dc204debfb3dc5528a1dd81de7247c5ab2, depends_on: [pci-register, android-device]}
   - {id: pci-msi-aperture, commit: 24e85e20b92b65cfae1b0881c98a391f32c346b0, depends_on: [android-pviommu, pci-vfio-admission]}
+
+gui_vm_r3:
+  kernel_parent: f426336ea21151f862bec492403b5fbb1a98617f
+  reset_commit: 262b04e976f7d6e37cd97499a90d46dd77553732
+  provider_commits:
+    linux_7_1_gpu_guest: 6d1f6fbf04b39bbc86c9d2deaaa6e8c3f8248c95
+    devfreq_governor_fix: ec26ef0dac4ffba1e6bc15e79c3989b801359f6f
+  ghaf_linux_7_1_intermediate: 21f986176ee4b9a048e7f02748b3f26d21b4dc02
+  reset_contract:
+    - resources: [60000000.vm_hs_p, 80000000.vm_cma_p, b0000000.scanout_p]
+      external: {owner: jetpack-nixos, paths: [pkgs/orin-virtualization-support/manifest.nix, pkgs/orin-virtualization-support/device-trees/gpu-vm/gpu_passthrough_overlay.dts]}
+      adaptation: explicit-mandatory-reset-callback-no-register-access
+      internal: guest-heaps-and-host-mediated-scanout
+      reset_class: non-executing-memory
+    - resources: [13830000.disp_caps_pt, 138c8000.disp_cursor_pt]
+      external: {owner: nvidia-l4t-r36.5, contracts: [NVC673_DISP_CAPABILITIES, NVC67A_CURSOR_IMM_CHANNEL_PIO]}
+      adaptation: explicit-mandatory-reset-callback-no-dma-engine
+      internal: read-only-capabilities-and-immediate-cursor-methods
+      reset_class: read-pio-wrapper
+    - resources: [13870000.disp_chan_pt]
+      external: {owner: nvidia-l4t-r36.5, paths: [nvdisplay/src/common/sdk/nvidia/inc/class/clc67d.h, nvdisplay/src/nvidia-modeset/src/nvkms-rm.c]}
+      adaptation: reclaim-evo-pages-and-set-put-to-hardware-get
+      internal: dce-mediated-core-and-window-command-channels
+      reset_class: doorbell-quiesce
+    - resources: [17000000.gpu]
+      external: {owner: nvidia-l4t-r36.5, paths: [nvgpu/drivers/gpu/nvgpu/hal/mc/mc_ga10b_fusa.c, nvgpu/drivers/gpu/nvgpu/hal/mc/mc_intr_ga10b_fusa.c]}
+      adaptation: mask-top-interrupts-clear-mc-device-enable-and-poll
+      internal: ga10b-graphics-and-copy-engines
+      reset_class: hardware-reset
+    - resources: [13e00000.host1x_pt]
+      external: {owner: linux-stable, paths: [drivers/gpu/host1x/hw/cdma_hw.c, drivers/gpu/host1x/hw/hw_host1x08_vm.h]}
+      adaptation: dma-stop-command-stop-and-teardown-all-63-channels
+      internal: host1x-command-dma-for-vic-nvdec-nvjpg
+      reset_class: dma-teardown
+    - resources: [15340000.vic, 15540000.nvjpg]
+      external: {owners: [linux-stable, nvidia-l4t-r36.5], paths: [drivers/gpu/drm/tegra/falcon.h, nvgpu/drivers/gpu/nvgpu/hal/falcon/falcon_gk20a_fusa.c]}
+      adaptation: mask-irqs-disable-method-interface-assert-cpuctl-hreset
+      internal: vic-and-nvjpg-firmware-processors
+      reset_class: firmware-reset
+    - resources: [15480000.nvdec]
+      external: {owner: linux-stable, path: drivers/gpu/drm/tegra/riscv.c}
+      adaptation: clear-boot-dma-configuration-and-riscv-start-latch
+      internal: nvdec-firmware-processor
+      reset_class: firmware-quiesce
+  intermediate_validation:
+    status: passed
+    protection: disabled
+    hardware: {topo_serial: TOPOED73D35C, ecid: 0x80012344705DD3C96C0000000A0081C0}
+    kernel: 7.1.8
+    gpu_governor: nvhost_podgov
+    display: {connector: card1-DP-1, status: connected}
+    session: {service: greetd, status: active}
+    devfreq_oops: absent
+    retained_baseline: tegra-bpmp-initcall-preemption-imbalance-warning
+  protected_validation: pending
 
 ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4

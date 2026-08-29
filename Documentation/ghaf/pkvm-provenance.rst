@@ -4,10 +4,11 @@
 Ghaf Orin pKVM Provenance
 ==========================
 
-This document describes the immutable ``orin-pkvm-v55`` source generation and
-the validated protected-PCI WLAN R2 follow-up.  The machine-readable source of
-truth is ``pkvm-provenance.yaml`` in this directory.  Update both files in one
-commit whenever a dependency changes.
+This document describes the immutable ``orin-pkvm-v55`` source generation,
+the validated protected-PCI WLAN R2 follow-up, and the protected accelerated
+GUIVM R3 development generation.  The machine-readable source of truth is
+``pkvm-provenance.yaml`` in this directory.  Update both files in one commit
+whenever a dependency changes.
 
 Layer Contract
 ==============
@@ -18,7 +19,10 @@ device-assignment work.  The ``integration/orin-pkvm-v7.1.7-r1`` branch has
 the port head as its exact first parent and adds only Ghaf/Orin integration,
 diagnostics, and this provenance record.  The
 ``integration/orin-pkvm-v7.1.7-r2`` branch starts at the immutable R1 head and
-adds the protected-PCI WLAN series without changing the v55 tag.
+adds the protected-PCI WLAN series without changing the v55 tag.  The
+``integration/orin-pkvm-v7.1.7-r3`` branch starts at the validated R2 head and
+adds the protected GPU/display reset contract.  R3 does not move either the
+v55 tag or the R2 boundary.
 
 Validated branches are immutable.  A new Linux stable base creates a new
 ``v7.1.x-rN`` port and integration pair instead of rewriting this generation.
@@ -156,6 +160,21 @@ minimum evidence that must be refreshed when the row changes.
      - Eight commits, ``8186853a2517`` through ``24e85e20b92b``
      - Protected RTL8822CE registration, reset, BAR, DMA, and MSI handling
      - Build, traffic, active teardown, cycles, and clean fault scans
+   * - kernel-guivm-reset-r3
+     - Linux pKVM device lifecycle, Linux Host1x, and NVIDIA L4T R36.5 GPU/display register contracts
+     - ``262b04e976f7``; per-resource mapping below
+     - Protected assignment of the eleven accelerated GUIVM platform resources
+     - Kernel build, protected boot, accelerated display, and repeated teardown
+   * - jetpack-guivm-linux71
+     - NVIDIA L4T R36.5 GPU/display sources and Linux 7.1 APIs
+     - ``jetpack-nixos`` commits ``6d1f6fb`` and ``ec26ef0``
+     - Linux 7.1 accelerated GUIVM module closure and devfreq governor
+     - Full cross image and identified-AGX unprotected GUI runtime
+   * - ghaf-guivm-linux71
+     - ``jetpack-guivm-linux71`` and Ghaf PR #2133/#2144/#2188 stack
+     - Ghaf commit ``21f986176``
+     - Intermediate unprotected accelerated GUIVM before protected composition
+     - Linux 7.1.8, ``nvhost_podgov``, DP-1, greetd, and clean devfreq fault scan
    * - microvm-pci-wlan
      - ``microvm-nix/microvm.nix#586`` interfaces
      - Draft PR #589, ``254dccf3f126``
@@ -171,6 +190,60 @@ minimum evidence that must be refreshed when the row changes.
      - Draft Ghaf PR #2188, ``e48209099c0b``
      - Assign onboard ``10ec:c822`` to protected NetVM
      - Full image and identified-AGX Wi-Fi runtime campaign
+
+R3 GPUVM Reset Mapping
+=======================
+
+The R3 reset commit is intentionally source-derived rather than a blanket
+no-op admission rule.  Each row records the external register contract, this
+repository's adaptation, and the internal resource that consumes it.  Update
+this table and the matching YAML ``gui_vm_r3.reset_contract`` entries whenever
+the provider manifest or reset implementation changes.
+
+.. list-table:: External Reset Contracts And Internal GPUVM Resources
+   :header-rows: 1
+   :widths: 18 29 21 20 12
+
+   * - Resources
+     - External contract
+     - R3 adaptation
+     - Internal consumer
+     - Reset class
+   * - ``vm_hs_p``, ``vm_cma_p``, ``scanout_p``
+     - Jetpack virtualization manifest and removed-memory overlay
+     - Explicit mandatory reset callback; no register access
+     - Guest heaps and host-mediated scanout buffers
+     - Non-executing memory
+   * - ``disp_caps_pt``, ``disp_cursor_pt``
+     - NVIDIA ``NVC673`` capability page and ``NVC67A`` cursor PIO class
+     - Explicit mandatory reset callback; no DMA engine
+     - Read-only capabilities and immediate cursor methods
+     - Read/PIO wrapper
+   * - ``disp_chan_pt``
+     - NVIDIA ``NVC67D`` PUT/GET DMA-control pages
+     - Reclaim pages and set each PUT to its hardware GET
+     - DCE-mediated core and window command channels
+     - Doorbell quiesce
+   * - ``17000000.gpu``
+     - NVIDIA GA10B MC engine reset and CPU interrupt-mask sequence
+     - Mask top interrupts, clear ``MC_DEVICE_ENABLE``, and poll reset
+     - GA10B graphics and copy engines
+     - Hardware reset
+   * - ``13e00000.host1x_pt``
+     - Linux T234 Host1x DMA stop, command stop, and channel teardown
+     - Apply the sequence to all 63 Host1x channels
+     - Host1x command DMA for VIC, NVDEC, and NVJPG
+     - DMA teardown
+   * - ``15340000.vic``, ``15540000.nvjpg``
+     - NVIDIA Falcon interrupt mask, interface disable, and CPU hard reset
+     - Reclaim the Falcon page and assert ``CPUCTL.HRESET``
+     - VIC and NVJPG firmware processors
+     - Firmware reset
+   * - ``15480000.nvdec``
+     - Linux T234 NVDEC RISC-V boot and boot-DMA registers
+     - Clear boot-DMA configuration and the RISC-V start latch
+     - NVDEC firmware processor
+     - Firmware quiesce
 
 Source Anchors
 ==============
