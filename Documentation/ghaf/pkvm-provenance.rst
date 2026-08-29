@@ -138,7 +138,7 @@ minimum evidence that must be refreshed when the row changes.
    * - ghaf-crosvm-create-vm
      - Crosvm source at ``aa2478bef075``
      - Ghaf protected-create-VM compatibility patch
-     - Protected AdminVM, NetVM, and ChromiumVM
+     - Protected AdminVM, NetVM, and ChromiumVM (R1/R2) or GUIVM (R3)
      - Target check and three active protected VMs
    * - ghaf-tfa
      - TF-A source selected through Jetpack/Ghaf
@@ -153,7 +153,7 @@ minimum evidence that must be refreshed when the row changes.
    * - ghaf-service-plane
      - ``microvm-pr586`` and ``orin-pkvm-v55`` interfaces
      - No generated kernel patch
-     - AdminVM, NetVM, ChromiumVM ordering and policy
+     - AdminVM, NetVM, and ChromiumVM (R1/R2) or GUIVM (R3) ordering and policy
      - Three protected VMs and independent NetVM recovery
    * - kernel-pci-wlan-r2
      - Linux PCI, Tegra194 PCIe, and ``orin-pkvm-v55`` interfaces
@@ -175,6 +175,16 @@ minimum evidence that must be refreshed when the row changes.
      - Ghaf commit ``21f986176``
      - Intermediate unprotected accelerated GUIVM before protected composition
      - Linux 7.1.8, ``nvhost_podgov``, DP-1, greetd, and clean devfreq fault scan
+   * - ghaf-device-manager-guivm-evdev
+     - ``ghaf-device-manager`` merged overlay baseline ``97835a588f65``
+     - Opt-in USB evdev commit ``20148e27488e``
+     - Host owns ``046d:c52b`` and forwards the ``Logitech K400 Plus`` event stream to GUIVM
+     - Unit tests, Clippy, REUSE, generated config, and runtime input
+   * - ghaf-protected-guivm-r3
+     - ``kernel-guivm-reset-r3``, ``jetpack-guivm-linux71``, and ``ghaf-device-manager-guivm-evdev``
+     - Ghaf commit ``16b65edbc0b5``
+     - Protected AdminVM, NetVM, and accelerated GUIVM; 11 GPU/display resources via ``pkvm-iommu``
+     - Full cross image, protected boot, accelerated display/input, and repeated teardown
    * - microvm-pci-wlan
      - ``microvm-nix/microvm.nix#586`` interfaces
      - Draft PR #589, ``254dccf3f126``

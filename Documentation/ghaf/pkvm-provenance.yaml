@@ -121,7 +121,7 @@ dependencies:
   - id: ghaf-crosvm-create-vm
     external: {owner: tiiuae/ghaf-crosvm, commit: aa2478bef0750cc4013f24aa2cda472346db4a93}
     adaptation: {status: ghaf-retained-patch, path: targets/nvidia/jetson-orin/patches/crosvm-upstream-pkvm-create-vm.patch}
-    internal: {consumer: protected-admin-net-and-chromium-vms}
+    internal: {consumer: protected-admin-net-and-chromium-r1-r2-or-guivm-r3}
     gate: target-check-and-three-active-protected-vms
   - id: ghaf-tfa
     external: {owner: trusted-firmware-a, selection: jetpack-ghaf}
@@ -136,7 +136,7 @@ dependencies:
   - id: ghaf-service-plane
     external: {dependencies: [microvm-pr586, ghaf-consumer]}
     adaptation: {status: no-generated-kernel-patch}
-    internal: {consumer: admin-net-chromium-ordering-and-policy}
+    internal: {consumer: admin-net-and-chromium-r1-r2-or-guivm-r3-ordering-and-policy}
     gate: three-protected-vms-and-independent-netvm-recovery
   - id: kernel-pci-wlan-r2
     external: {owners: [linux-pci, tegra194-pcie, orin-pkvm-v55], base_commit: e23a41d18ec23036ab5164adf5c79919b999a61d}
@@ -158,6 +158,16 @@ dependencies:
     adaptation: {status: ghaf-intermediate-followup, commit: 21f986176ee4b9a048e7f02748b3f26d21b4dc02}
     internal: {consumer: unprotected-accelerated-guivm-before-protected-composition}
     gate: linux-7.1.8-nvhost-podgov-dp1-greetd-clean-devfreq-fault-scan
+  - id: ghaf-device-manager-guivm-evdev
+    external: {owner: tiiuae/ghaf-device-manager, base_commit: 97835a588f651e915b3812a045164eac64fee1ed}
+    adaptation: {status: provider-owned-followup, commit: 20148e27488eedffc18023584142e22727167963}
+    internal: {consumer: host-owned-046d-c52b-logitech-k400-event-stream-to-guivm, trusted_input: false}
+    gate: unit-tests-clippy-reuse-generated-config-and-runtime-input
+  - id: ghaf-protected-guivm-r3
+    external: {dependencies: [kernel-guivm-reset-r3, jetpack-guivm-linux71, ghaf-device-manager-guivm-evdev]}
+    adaptation: {status: ghaf-protected-composition, commit: 16b65edbc0b526b415e5a074105fc322c4286286}
+    internal: {consumer: protected-admin-net-and-accelerated-guivm-eleven-pkvm-iommu-resources, guest_memory_mib: 8192}
+    gate: full-cross-image-protected-boot-accelerated-display-input-and-repeated-teardown
   - id: microvm-pci-wlan
     external: {owner: microvm-nix/microvm.nix, base_pull_request: 586, base_commit: 0299f2d5faf597795ae78aab064eece23154b2b0}
     adaptation: {status: provider-owned-followup, pull_request: 589, commit: 254dccf3f126e22e929f3e6d32399a45f55cf977}
@@ -264,6 +274,9 @@ gui_vm_r3:
     linux_7_1_gpu_guest: 6d1f6fbf04b39bbc86c9d2deaaa6e8c3f8248c95
     devfreq_governor_fix: ec26ef0dac4ffba1e6bc15e79c3989b801359f6f
   ghaf_linux_7_1_intermediate: 21f986176ee4b9a048e7f02748b3f26d21b4dc02
+  device_manager_base: 97835a588f651e915b3812a045164eac64fee1ed
+  device_manager_evdev_commit: 20148e27488eedffc18023584142e22727167963
+  ghaf_protected_composition: 16b65edbc0b526b415e5a074105fc322c4286286
   reset_contract:
     - resources: [60000000.vm_hs_p, 80000000.vm_cma_p, b0000000.scanout_p]
       external: {owner: jetpack-nixos, paths: [pkgs/orin-virtualization-support/manifest.nix, pkgs/orin-virtualization-support/device-trees/gpu-vm/gpu_passthrough_overlay.dts]}
@@ -310,7 +323,15 @@ gui_vm_r3:
     session: {service: greetd, status: active}
     devfreq_oops: absent
     retained_baseline: tegra-bpmp-initcall-preemption-imbalance-warning
-  protected_validation: pending
+  protected_validation:
+    status: build-passed-runtime-pending
+    topology: {protected_vms: [admin-vm, net-vm, gui-vm], guest_memory_mib: 8192, host_memory_cap_gib: 12}
+    gui_assignment: {resources: 11, iommu: pkvm-iommu, protection: protected-without-firmware}
+    input: {mode: host-mediated-evdev, trusted_input: false, usb_receiver: "046d:c52b"}
+    image:
+      store_path: /nix/store/z60l0m448d8nimq4hhlwkvhsd4yx3i8d-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+      size_bytes: 10661609813
+      sha256: b08285ee00b48818ca2550ee04c5b063b1fff09efcdb8f8f556d0d8de877ff21
 
 ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
