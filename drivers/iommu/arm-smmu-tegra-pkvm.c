@@ -199,10 +199,15 @@ static void pkvm_tegra_detach(struct device *dev, struct iommu_domain *domain)
 		return;
 
 	if (domain->type == IOMMU_DOMAIN_IDENTITY) {
-		for (i = 0; i < fwspec->num_ids; i++)
-			WARN_ON(kvm_iommu_set_identity(pkvm_tegra_hyp_driver,
-						       master->smmu->id,
-						       fwspec->ids[i], false, 0));
+		for (i = 0; i < fwspec->num_ids; i++) {
+			int ret;
+
+			ret = kvm_iommu_set_identity(pkvm_tegra_hyp_driver,
+						     master->smmu->id,
+						     fwspec->ids[i], false, 0);
+			/* A shared SID may already have been detached by a group peer. */
+			WARN_ON(ret && ret != -ENOENT);
+		}
 		return;
 	}
 
