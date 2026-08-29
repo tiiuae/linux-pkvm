@@ -28,6 +28,7 @@
 #define PKVM_TEGRA_TLB_SPINS		1000000
 #define PKVM_TEGRA_MGBE_RESET_SPINS	2000000
 #define PKVM_TEGRA_RTW_RESET_SPINS	2000000
+#define PKVM_TEGRA_GPU_RESET_SPINS	2000000
 #define PKVM_TEGRA_ATS_SPINS		100000
 
 /* Temporary boot diagnostics for the nvidia-jetson-orin-agx-pkvm-debug target. */
@@ -59,6 +60,42 @@
 #define PKVM_TEGRA_RTW_RST_TRXDMA_INTF	BIT(20)
 #define PKVM_TEGRA_RTW_RX_TAG_EN		BIT(15)
 #define PKVM_TEGRA_RTW_PFM_WOWL		BIT(3)
+
+#define PKVM_TEGRA_GUI_VM_HS_BASE	0x60000000
+#define PKVM_TEGRA_GUI_VM_CMA_BASE	0x80000000
+#define PKVM_TEGRA_GUI_SCANOUT_BASE	0xb0000000
+#define PKVM_TEGRA_GUI_DISP_CAPS_BASE	0x13830000
+#define PKVM_TEGRA_GUI_DISP_CHAN_BASE	0x13870000
+#define PKVM_TEGRA_GUI_DISP_CHAN_SIZE	0x00020000
+#define PKVM_TEGRA_GUI_DISP_CURSOR_BASE	0x138c8000
+#define PKVM_TEGRA_GUI_GPU_BASE		0x17000000
+#define PKVM_TEGRA_GUI_HOST1X_BASE	0x13e00000
+#define PKVM_TEGRA_GUI_HOST1X_SIZE	0x00010000
+#define PKVM_TEGRA_GUI_VIC_BASE		0x15340000
+#define PKVM_TEGRA_GUI_NVDEC_BASE	0x15480000
+#define PKVM_TEGRA_GUI_NVJPG_BASE	0x15540000
+
+#define PKVM_TEGRA_DISP_CHAN_PUT	0x0000
+#define PKVM_TEGRA_DISP_CHAN_GET	0x0004
+
+#define PKVM_TEGRA_GPU_FUNC_OFFSET	0x00b80000
+#define PKVM_TEGRA_GPU_INTR_TOP_CLEAR	0x00001610
+#define PKVM_TEGRA_GPU_DEVICE_ENABLE	0x00000600
+
+#define PKVM_TEGRA_HOST1X_CHANNELS	63
+#define PKVM_TEGRA_HOST1X_CHANNEL_STRIDE	0x0100
+#define PKVM_TEGRA_HOST1X_DMACTRL	0x0020
+#define PKVM_TEGRA_HOST1X_DMASTOP	BIT(0)
+#define PKVM_TEGRA_HOST1X_CMDPROC_STOP	0x0048
+#define PKVM_TEGRA_HOST1X_TEARDOWN	0x004c
+
+#define PKVM_TEGRA_FALCON_IRQMCLR	0x00001014
+#define PKVM_TEGRA_FALCON_ITFEN		0x00001048
+#define PKVM_TEGRA_FALCON_CPUCTL	0x00001100
+#define PKVM_TEGRA_FALCON_CPUCTL_HRESET	BIT(3)
+
+#define PKVM_TEGRA_NVDEC_RISCV_CPUCTL	0x00004388
+#define PKVM_TEGRA_NVDEC_BCR_DMACFG	0x0000466c
 
 struct pkvm_tegra_hyp_smmu {
 	struct pkvm_tegra_smmu_device *params;
@@ -117,21 +154,33 @@ static struct pkvm_tegra_mgbe tegra_mgbe0 = {
 	.mac_base = PKVM_TEGRA_MGBE0_MAC_BASE,
 };
 
-static int tegra_reclaim_device_reset_page(phys_addr_t phys)
+static int tegra_reclaim_device_reset_range(phys_addr_t phys, size_t size)
 {
 	int ret;
 
-	ret = pkvm_reclaim_guest_mmio_to_host(phys, PAGE_SIZE);
+	ret = pkvm_reclaim_guest_mmio_to_host(phys, size);
 	if (ret)
 		return ret;
 
-	return pkvm_host_donate_hyp_mmio(phys >> PAGE_SHIFT, 1,
+	return pkvm_host_donate_hyp_mmio(phys >> PAGE_SHIFT,
+					 size >> PAGE_SHIFT,
 					 PAGE_HYP_DEVICE);
+}
+
+static int tegra_release_device_reset_range(phys_addr_t phys, size_t size)
+{
+	return pkvm_hyp_reclaim_mmio(phys >> PAGE_SHIFT,
+				     size >> PAGE_SHIFT);
+}
+
+static int tegra_reclaim_device_reset_page(phys_addr_t phys)
+{
+	return tegra_reclaim_device_reset_range(phys, PAGE_SIZE);
 }
 
 static int tegra_release_device_reset_page(phys_addr_t phys)
 {
-	return pkvm_hyp_reclaim_mmio(phys >> PAGE_SHIFT, 1);
+	return tegra_release_device_reset_range(phys, PAGE_SIZE);
 }
 
 static int tegra_mgbe_reset(void *cookie, bool host_to_guest)
@@ -304,18 +353,279 @@ static struct pkvm_device_ops tegra_rtw8822ce_ops = {
 	.reset = tegra_rtw8822ce_reset,
 };
 
+struct pkvm_tegra_mmio_reset {
+	phys_addr_t base;
+	size_t size;
+};
+
+static struct pkvm_tegra_mmio_reset tegra_gui_disp_chan = {
+	.base = PKVM_TEGRA_GUI_DISP_CHAN_BASE,
+	.size = PKVM_TEGRA_GUI_DISP_CHAN_SIZE,
+};
+
+static struct pkvm_tegra_mmio_reset tegra_gui_gpu = {
+	.base = PKVM_TEGRA_GUI_GPU_BASE,
+};
+
+static struct pkvm_tegra_mmio_reset tegra_gui_host1x = {
+	.base = PKVM_TEGRA_GUI_HOST1X_BASE,
+	.size = PKVM_TEGRA_GUI_HOST1X_SIZE,
+};
+
+static struct pkvm_tegra_mmio_reset tegra_gui_vic = {
+	.base = PKVM_TEGRA_GUI_VIC_BASE,
+};
+
+static struct pkvm_tegra_mmio_reset tegra_gui_nvdec = {
+	.base = PKVM_TEGRA_GUI_NVDEC_BASE,
+};
+
+static struct pkvm_tegra_mmio_reset tegra_gui_nvjpg = {
+	.base = PKVM_TEGRA_GUI_NVJPG_BASE,
+};
+
+/* Reserved-memory, read-only, and cursor-PIO wrappers own no DMA engine. */
+static int tegra_gui_wrapper_reset(void *cookie, bool host_to_guest)
+{
+	return 0;
+}
+
+static struct pkvm_device_ops tegra_gui_wrapper_ops = {
+	.reset = tegra_gui_wrapper_reset,
+};
+
+static int tegra_gui_disp_chan_reset(void *cookie, bool host_to_guest)
+{
+	struct pkvm_tegra_mmio_reset *channel = cookie;
+	void __iomem *base = hyp_phys_to_virt(channel->base);
+	bool reclaimed = false;
+	size_t offset;
+	int ret = 0;
+
+	if (!host_to_guest) {
+		ret = tegra_reclaim_device_reset_range(channel->base,
+						       channel->size);
+		if (ret)
+			return ret;
+		reclaimed = true;
+	}
+
+	/*
+	 * Each 4K EVO DMA-control page exposes PUT and GET.  Moving PUT back
+	 * to the hardware-owned GET position discards pending guest commands
+	 * without touching the DCE-owned display control plane.
+	 */
+	for (offset = 0; offset < channel->size; offset += PAGE_SIZE) {
+		u32 get = readl_relaxed(base + offset + PKVM_TEGRA_DISP_CHAN_GET);
+
+		writel_relaxed(get,
+			       base + offset + PKVM_TEGRA_DISP_CHAN_PUT);
+	}
+	dsb(sy);
+
+	if (reclaimed &&
+	    tegra_release_device_reset_range(channel->base, channel->size))
+		ret = -EIO;
+	return ret;
+}
+
+static struct pkvm_device_ops tegra_gui_disp_chan_ops = {
+	.reset = tegra_gui_disp_chan_reset,
+};
+
+static int tegra_gui_gpu_reset(void *cookie, bool host_to_guest)
+{
+	struct pkvm_tegra_mmio_reset *gpu = cookie;
+	phys_addr_t mc_phys = gpu->base & PAGE_MASK;
+	phys_addr_t func_phys = (gpu->base + PKVM_TEGRA_GPU_FUNC_OFFSET +
+				 PKVM_TEGRA_GPU_INTR_TOP_CLEAR) & PAGE_MASK;
+	void __iomem *mc = hyp_phys_to_virt(gpu->base);
+	void __iomem *func = hyp_phys_to_virt(gpu->base +
+					     PKVM_TEGRA_GPU_FUNC_OFFSET);
+	bool mc_reclaimed = false;
+	bool func_reclaimed = false;
+	unsigned int spin;
+	int ret = 0;
+
+	if (!host_to_guest) {
+		ret = tegra_reclaim_device_reset_page(mc_phys);
+		if (ret)
+			return ret;
+		mc_reclaimed = true;
+
+		ret = tegra_reclaim_device_reset_page(func_phys);
+		if (ret)
+			goto out_release;
+		func_reclaimed = true;
+	}
+
+	/* Follow GA10B's MC shutdown: mask CPU interrupts, then reset engines. */
+	writel_relaxed(U32_MAX, func + PKVM_TEGRA_GPU_INTR_TOP_CLEAR);
+	writel_relaxed(0, mc + PKVM_TEGRA_GPU_DEVICE_ENABLE);
+	for (spin = 0; spin < PKVM_TEGRA_GPU_RESET_SPINS; spin++) {
+		if (!readl_relaxed(mc + PKVM_TEGRA_GPU_DEVICE_ENABLE))
+			goto out_release;
+		cpu_relax();
+	}
+	ret = -ETIMEDOUT;
+
+out_release:
+	if (func_reclaimed && tegra_release_device_reset_page(func_phys) &&
+	    !ret)
+		ret = -EIO;
+	if (mc_reclaimed && tegra_release_device_reset_page(mc_phys) && !ret)
+		ret = -EIO;
+	return ret;
+}
+
+static struct pkvm_device_ops tegra_gui_gpu_ops = {
+	.reset = tegra_gui_gpu_reset,
+};
+
+static int tegra_gui_host1x_reset(void *cookie, bool host_to_guest)
+{
+	struct pkvm_tegra_mmio_reset *host1x = cookie;
+	void __iomem *base = hyp_phys_to_virt(host1x->base);
+	bool reclaimed = false;
+	unsigned int channel;
+	int ret = 0;
+
+	if (!host_to_guest) {
+		ret = tegra_reclaim_device_reset_range(host1x->base,
+						       host1x->size);
+		if (ret)
+			return ret;
+		reclaimed = true;
+	}
+
+	/* Stop CDMA, stop command execution, and reset every T234 channel. */
+	for (channel = 0; channel < PKVM_TEGRA_HOST1X_CHANNELS; channel++) {
+		void __iomem *regs = base +
+			channel * PKVM_TEGRA_HOST1X_CHANNEL_STRIDE;
+
+		writel_relaxed(PKVM_TEGRA_HOST1X_DMASTOP,
+			       regs + PKVM_TEGRA_HOST1X_DMACTRL);
+		writel_relaxed(1, regs + PKVM_TEGRA_HOST1X_CMDPROC_STOP);
+		writel_relaxed(1, regs + PKVM_TEGRA_HOST1X_TEARDOWN);
+	}
+	dsb(sy);
+
+	if (reclaimed &&
+	    tegra_release_device_reset_range(host1x->base, host1x->size))
+		ret = -EIO;
+	return ret;
+}
+
+static struct pkvm_device_ops tegra_gui_host1x_ops = {
+	.reset = tegra_gui_host1x_reset,
+};
+
+static int tegra_gui_falcon_reset(void *cookie, bool host_to_guest)
+{
+	struct pkvm_tegra_mmio_reset *engine = cookie;
+	phys_addr_t reset_phys = (engine->base +
+				  PKVM_TEGRA_FALCON_CPUCTL) & PAGE_MASK;
+	void __iomem *base = hyp_phys_to_virt(engine->base);
+	bool reclaimed = false;
+	u32 value;
+	int ret = 0;
+
+	if (!host_to_guest) {
+		ret = tegra_reclaim_device_reset_page(reset_phys);
+		if (ret)
+			return ret;
+		reclaimed = true;
+	}
+
+	/* Mask Falcon IRQs, reject new methods, and assert the CPU hard reset. */
+	writel_relaxed(U32_MAX, base + PKVM_TEGRA_FALCON_IRQMCLR);
+	writel_relaxed(0, base + PKVM_TEGRA_FALCON_ITFEN);
+	value = readl_relaxed(base + PKVM_TEGRA_FALCON_CPUCTL);
+	writel_relaxed(value | PKVM_TEGRA_FALCON_CPUCTL_HRESET,
+		       base + PKVM_TEGRA_FALCON_CPUCTL);
+	dsb(sy);
+
+	if (reclaimed && tegra_release_device_reset_page(reset_phys))
+		ret = -EIO;
+	return ret;
+}
+
+static struct pkvm_device_ops tegra_gui_falcon_ops = {
+	.reset = tegra_gui_falcon_reset,
+};
+
+static int tegra_gui_nvdec_reset(void *cookie, bool host_to_guest)
+{
+	struct pkvm_tegra_mmio_reset *nvdec = cookie;
+	phys_addr_t reset_phys = (nvdec->base +
+				  PKVM_TEGRA_NVDEC_RISCV_CPUCTL) & PAGE_MASK;
+	void __iomem *base = hyp_phys_to_virt(nvdec->base);
+	bool reclaimed = false;
+	int ret = 0;
+
+	if (!host_to_guest) {
+		ret = tegra_reclaim_device_reset_page(reset_phys);
+		if (ret)
+			return ret;
+		reclaimed = true;
+	}
+
+	/* Clear the T234 boot-DMA configuration and the RISC-V start latch. */
+	writel_relaxed(0, base + PKVM_TEGRA_NVDEC_BCR_DMACFG);
+	writel_relaxed(0, base + PKVM_TEGRA_NVDEC_RISCV_CPUCTL);
+	dsb(sy);
+
+	if (reclaimed && tegra_release_device_reset_page(reset_phys))
+		ret = -EIO;
+	return ret;
+}
+
+static struct pkvm_device_ops tegra_gui_nvdec_ops = {
+	.reset = tegra_gui_nvdec_reset,
+};
+
+static void tegra_register_device_ops(phys_addr_t phys,
+				      struct pkvm_device_ops *ops,
+				      void *cookie)
+{
+	int ret = pkvm_device_register_ops(phys, ops, cookie);
+
+	WARN_ON(ret && ret != -ENODEV);
+}
+
 static void tegra_init_devices(void)
 {
-	int ret;
+	tegra_register_device_ops(tegra_mgbe0.hv_base, &tegra_mgbe_ops,
+				  &tegra_mgbe0);
+	tegra_register_device_ops(tegra_rtw8822ce.bar_base,
+				  &tegra_rtw8822ce_ops, &tegra_rtw8822ce);
 
-	ret = pkvm_device_register_ops(tegra_mgbe0.hv_base, &tegra_mgbe_ops,
-				       &tegra_mgbe0);
-	WARN_ON(ret && ret != -ENODEV);
+	/* Non-executing GPU/display resource wrappers. */
+	tegra_register_device_ops(PKVM_TEGRA_GUI_VM_HS_BASE,
+				  &tegra_gui_wrapper_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_VM_CMA_BASE,
+				  &tegra_gui_wrapper_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_SCANOUT_BASE,
+				  &tegra_gui_wrapper_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_DISP_CAPS_BASE,
+				  &tegra_gui_wrapper_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_DISP_CURSOR_BASE,
+				  &tegra_gui_wrapper_ops, NULL);
 
-	ret = pkvm_device_register_ops(tegra_rtw8822ce.bar_base,
-				       &tegra_rtw8822ce_ops,
-				       &tegra_rtw8822ce);
-	WARN_ON(ret && ret != -ENODEV);
+	/* DMA-capable display, GPU, and Host1x engine resources. */
+	tegra_register_device_ops(tegra_gui_disp_chan.base,
+				  &tegra_gui_disp_chan_ops,
+				  &tegra_gui_disp_chan);
+	tegra_register_device_ops(tegra_gui_gpu.base, &tegra_gui_gpu_ops,
+				  &tegra_gui_gpu);
+	tegra_register_device_ops(tegra_gui_host1x.base,
+				  &tegra_gui_host1x_ops, &tegra_gui_host1x);
+	tegra_register_device_ops(tegra_gui_vic.base, &tegra_gui_falcon_ops,
+				  &tegra_gui_vic);
+	tegra_register_device_ops(tegra_gui_nvdec.base, &tegra_gui_nvdec_ops,
+				  &tegra_gui_nvdec);
+	tegra_register_device_ops(tegra_gui_nvjpg.base, &tegra_gui_falcon_ops,
+				  &tegra_gui_nvjpg);
 }
 
 static void __iomem *tegra_smmu_page(struct pkvm_tegra_hyp_smmu *smmu,
