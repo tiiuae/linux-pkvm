@@ -26,6 +26,41 @@ unsigned long registered_devices_nr;
  */
 static DEFINE_HYP_SPINLOCK(device_spinlock);
 
+bool pkvm_device_is_shared_resource(struct pkvm_hyp_vm *vm, u64 phys,
+				    size_t size)
+{
+	u64 end;
+	bool found = false;
+	int i, j;
+
+	if (!size || check_add_overflow(phys, size, &end))
+		return false;
+
+	hyp_spin_lock(&device_spinlock);
+	for (i = 0; i < registered_devices_nr && !found; i++) {
+		struct pkvm_device *dev = &registered_devices[i];
+
+		if (dev->ctxt != vm)
+			continue;
+
+		for (j = 0; j < dev->nr_resources; j++) {
+			struct pkvm_dev_resource *res = &dev->resources[j];
+			u64 res_end;
+
+			if (!(res->flags & PKVM_DEV_RESOURCE_SHARED) ||
+			    check_add_overflow(res->base, res->size, &res_end))
+				continue;
+			if (phys >= res->base && end <= res_end) {
+				found = true;
+				break;
+			}
+		}
+	}
+	hyp_spin_unlock(&device_spinlock);
+
+	return found;
+}
+
 int pkvm_init_devices(void)
 {
 	size_t dev_sz;
@@ -75,6 +110,21 @@ static bool pkvm_device_has_resource(struct pkvm_device *dev, u64 phys)
 	}
 
 	return false;
+}
+
+static struct pkvm_dev_resource *
+pkvm_get_device_resource_by_addr(struct pkvm_device *dev, u64 phys)
+{
+	int i;
+
+	for (i = 0; i < dev->nr_resources; i++) {
+		struct pkvm_dev_resource *res = &dev->resources[i];
+
+		if (phys >= res->base && phys < res->base + res->size)
+			return res;
+	}
+
+	return NULL;
 }
 
 static struct pkvm_device *pkvm_get_device_by_addr(u64 addr)
@@ -214,6 +264,8 @@ static int __pkvm_device_assign(struct pkvm_device *dev, struct pkvm_hyp_vm *vm)
 
 	for (i = 0 ; i < dev->nr_resources; ++i) {
 		res = &dev->resources[i];
+		if (res->flags & PKVM_DEV_RESOURCE_SHARED)
+			continue;
 		ret = hyp_check_range_owned(res->base, res->size);
 		if (ret)
 			return ret;
@@ -274,7 +326,9 @@ static int __pkvm_group_assign(u32 group_id, struct pkvm_hyp_vm *vm)
 int pkvm_host_map_guest_mmio(struct pkvm_hyp_vcpu *hyp_vcpu, u64 pfn, u64 gfn)
 {
 	int ret = 0;
-	struct pkvm_device *dev = pkvm_get_device_by_addr(hyp_pfn_to_phys(pfn));
+	u64 phys = hyp_pfn_to_phys(pfn);
+	struct pkvm_device *dev = pkvm_get_device_by_addr(phys);
+	struct pkvm_dev_resource *res;
 	struct pkvm_hyp_vm *vm = pkvm_hyp_vcpu_to_hyp_vm(hyp_vcpu);
 
 	if (!dev)
@@ -295,7 +349,28 @@ int pkvm_host_map_guest_mmio(struct pkvm_hyp_vcpu *hyp_vcpu, u64 pfn, u64 gfn)
 	if (ret)
 		goto out_ret;
 
-	ret = __pkvm_install_guest_mmio(hyp_vcpu, pfn, gfn);
+	res = pkvm_get_device_resource_by_addr(dev, phys);
+	if (WARN_ON(!res)) {
+		ret = -ENODEV;
+		goto out_ret;
+	}
+
+	if (res->flags & PKVM_DEV_RESOURCE_SHARED) {
+		if (pfn != gfn) {
+			ret = -EINVAL;
+			goto out_ret;
+		}
+		if (res->mapped) {
+			ret = -EEXIST;
+			goto out_ret;
+		}
+		ret = pkvm_map_guest_shared_resource(hyp_vcpu,
+						     res->base, res->size);
+		if (!ret)
+			res->mapped = true;
+	} else {
+		ret = __pkvm_install_guest_mmio(hyp_vcpu, pfn, gfn);
+	}
 
 out_ret:
 	hyp_spin_unlock(&device_spinlock);
@@ -371,7 +446,14 @@ static void pkvm_devices_reclaim_device(struct pkvm_device *dev)
 	for (i = 0 ; i < dev->nr_resources ; ++i) {
 		struct pkvm_dev_resource *res = &dev->resources[i];
 
-		WARN_ON(pkvm_reclaim_guest_mmio_to_host(res->base, res->size));
+		if (res->flags & PKVM_DEV_RESOURCE_SHARED) {
+			if (!res->mapped)
+				continue;
+			WARN_ON(pkvm_unmap_guest_shared_resource(dev->ctxt, res->base, res->size));
+			res->mapped = false;
+		} else {
+			WARN_ON(pkvm_reclaim_guest_mmio_to_host(res->base, res->size));
+		}
 	}
 }
 
@@ -388,8 +470,8 @@ void pkvm_devices_teardown(struct pkvm_hyp_vm *vm)
 		WARN_ON(pkvm_device_reset(dev, false));
 		if (dev->ops && dev->ops->power_lock)
 			WARN_ON(pkvm_device_power_lock(vm, dev, false));
-		dev->ctxt = NULL;
 		pkvm_devices_reclaim_device(dev);
+		dev->ctxt = NULL;
 	}
 	hyp_spin_unlock(&device_spinlock);
 }

@@ -31,6 +31,7 @@ DEFINE_STATIC_KEY_FALSE(kvm_protected_mode_initialized);
 
 #define PKVM_DEVICE_ASSIGN_COMPAT "pkvm,device-assignment"
 #define PKVM_PCI_DEVICE_ASSIGN_COMPAT "pkvm,pci-device-assignment"
+#define PKVM_SHARED_RESOURCE_PROP "pkvm,shared-resource"
 #define PKVM_PCI_PROBE_TIMEOUT_MS 1000
 #define PKVM_PCI_PROBE_INTERVAL_MS 10
 
@@ -325,6 +326,8 @@ static int pkvm_register_device(struct of_phandle_args *args,
 
 		dev->resources[idx].base = res.start;
 		dev->resources[idx].size = resource_size(&res);
+		if (of_property_read_bool(np, PKVM_SHARED_RESOURCE_PROP))
+			dev->resources[idx].flags |= PKVM_DEV_RESOURCE_SHARED;
 		idx++;
 	}
 	dev->nr_resources = idx;
@@ -1098,6 +1101,10 @@ static int pkvm_assign_platform_device(struct device *dev, void *data)
 
 	if (!dev_is_platform(dev))
 		return -EOPNOTSUPP;
+	/* Shared proxy apertures never transition out of host ownership. */
+	if (dev->of_node &&
+	    of_property_read_bool(dev->of_node, PKVM_SHARED_RESOURCE_PROP))
+		return 0;
 
 	pdev = to_platform_device(dev);
 	while ((resource = platform_get_resource(pdev, IORESOURCE_MEM, index))) {
@@ -1125,6 +1132,9 @@ static int pkvm_reclaim_platform_device(struct device *dev, void *data)
 
 	if (!dev_is_platform(dev))
 		return -EOPNOTSUPP;
+	if (dev->of_node &&
+	    of_property_read_bool(dev->of_node, PKVM_SHARED_RESOURCE_PROP))
+		return 0;
 
 	pdev = to_platform_device(dev);
 	while ((resource = platform_get_resource(pdev, IORESOURCE_MEM, index++)))
