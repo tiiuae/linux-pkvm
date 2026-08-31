@@ -162,14 +162,14 @@ minimum evidence that must be refreshed when the row changes.
      - Build, traffic, active teardown, cycles, and clean fault scans
    * - kernel-guivm-reset-r3
      - Linux pKVM device lifecycle, Linux Host1x, and NVIDIA L4T R36.5 GPU/display register contracts
-     - ``262b04e976f7``; per-resource mapping below
+     - Seven-commit R3 series, ``262b04e976f7`` through ``7a290b85d632``; final reset policy below
      - Protected assignment of the eleven accelerated GUIVM platform resources
-     - Kernel build, protected boot, accelerated display, and repeated teardown
+     - Kernel build, protected boot, accelerated display, and first teardown
    * - jetpack-guivm-linux71
      - NVIDIA L4T R36.5 GPU/display sources and Linux 7.1 APIs
-     - ``jetpack-nixos`` commits ``6d1f6fb`` and ``ec26ef0``
+     - ``jetpack-nixos`` PR #23, ``6d1f6fb`` through ``278ebc4``
      - Linux 7.1 accelerated GUIVM module closure and devfreq governor
-     - Full cross image and identified-AGX unprotected GUI runtime
+     - Full cross image and identified-AGX protected GUI runtime
    * - ghaf-guivm-linux71
      - ``jetpack-guivm-linux71`` and Ghaf PR #2133/#2144/#2188 stack
      - Ghaf commit ``21f986176``
@@ -181,10 +181,10 @@ minimum evidence that must be refreshed when the row changes.
      - Host owns ``046d:c52b`` and forwards the ``Logitech K400 Plus`` event stream to GUIVM
      - Unit tests, Clippy, REUSE, generated config, and runtime input
    * - ghaf-protected-guivm-r3
-     - ``kernel-guivm-reset-r3``, ``jetpack-guivm-linux71``, and ``ghaf-device-manager-guivm-evdev``
-     - Ghaf commit ``16b65edbc0b5``
+     - ``kernel-guivm-reset-r3``, ``jetpack-guivm-linux71``, Crosvm PR #14, and ``ghaf-device-manager-guivm-evdev``
+     - Ghaf commits ``16b65edbc0b5`` through ``03f4b5f91``
      - Protected AdminVM, NetVM, and accelerated GUIVM; 11 GPU/display resources via ``pkvm-iommu``
-     - Full cross image, protected boot, accelerated display/input, and repeated teardown
+     - Full cross image, protected boot, accelerated display, and first teardown
    * - microvm-pci-wlan
      - ``microvm-nix/microvm.nix#586`` interfaces
      - Draft PR #589, ``254dccf3f126``
@@ -204,56 +204,40 @@ minimum evidence that must be refreshed when the row changes.
 R3 GPUVM Reset Mapping
 =======================
 
-The R3 reset commit is intentionally source-derived rather than a blanket
-no-op admission rule.  Each row records the external register contract, this
-repository's adaptation, and the internal resource that consumes it.  Update
-this table and the matching YAML ``gui_vm_r3.reset_contract`` entries whenever
-the provider manifest or reset implementation changes.
+The initial R3 reset implementation was source-derived from Linux and NVIDIA
+register contracts.  Hardware testing showed that EL2 accesses to those
+registers can trigger fatal Tegra CBB ``PWRDOWN_ERR`` faults because the guest
+power-gates the engines before teardown.  Commit ``7a290b85d632`` therefore
+replaces every GUI resource's register-level callback with an explicit
+deferred-reset callback.  Device admission remains explicit, while generic
+teardown still blocks DMA and reclaims every non-shared aperture.  Update this
+table and the matching YAML ``gui_vm_r3.reset_contract`` entries when a future
+implementation can hold the required BPMP power domains on safely.
 
 .. list-table:: External Reset Contracts And Internal GPUVM Resources
    :header-rows: 1
-   :widths: 18 29 21 20 12
+   :widths: 21 27 24 18 10
 
    * - Resources
      - External contract
      - R3 adaptation
      - Internal consumer
      - Reset class
-   * - ``vm_hs_p``, ``vm_cma_p``, ``scanout_p``
-     - Jetpack virtualization manifest and removed-memory overlay
-     - Explicit mandatory reset callback; no register access
-     - Guest heaps and host-mediated scanout buffers
-     - Non-executing memory
-   * - ``disp_caps_pt``, ``disp_cursor_pt``
-     - NVIDIA ``NVC673`` capability page and ``NVC67A`` cursor PIO class
-     - Explicit mandatory reset callback; no DMA engine
-     - Read-only capabilities and immediate cursor methods
-     - Read/PIO wrapper
-   * - ``disp_chan_pt``
-     - NVIDIA ``NVC67D`` PUT/GET DMA-control pages
-     - Reclaim pages and set each PUT to its hardware GET
-     - DCE-mediated core and window command channels
-     - Doorbell quiesce
-   * - ``17000000.gpu``
-     - NVIDIA GA10B MC engine reset and CPU interrupt-mask sequence
-     - Mask top interrupts, clear ``MC_DEVICE_ENABLE``, and poll reset
-     - GA10B graphics and copy engines
-     - Hardware reset
-   * - ``13e00000.host1x_pt``
-     - Linux T234 Host1x DMA stop, command stop, and channel teardown
-     - Apply the sequence to all 63 Host1x channels
-     - Host1x command DMA for VIC, NVDEC, and NVJPG
-     - DMA teardown
-   * - ``15340000.vic``, ``15540000.nvjpg``
-     - NVIDIA Falcon interrupt mask, interface disable, and CPU hard reset
-     - Reclaim the Falcon page and assert ``CPUCTL.HRESET``
-     - VIC and NVJPG firmware processors
-     - Firmware reset
-   * - ``15480000.nvdec``
-     - Linux T234 NVDEC RISC-V boot and boot-DMA registers
-     - Clear boot-DMA configuration and the RISC-V start latch
-     - NVDEC firmware processor
-     - Firmware quiesce
+   * - ``vm_hs_p``, ``vm_cma_p``, ``scanout_p``, ``disp_caps_pt``, ``disp_cursor_pt``
+     - Jetpack manifest plus NVIDIA capability and cursor contracts
+     - Explicit callback with no register access
+     - Memory and PIO wrapper resources
+     - Deferred
+   * - ``disp_chan_pt``, ``17000000.gpu``, ``13e00000.host1x_pt``
+     - NVIDIA display/GA10B and Linux Host1x reset contracts
+     - Defer register access until pKVM owns the BPMP power-domain lifetime
+     - Display, GPU, and Host1x DMA engines
+     - Deferred
+   * - ``15340000.vic``, ``15480000.nvdec``, ``15540000.nvjpg``
+     - NVIDIA Falcon and Linux NVDEC firmware-control contracts
+     - Defer register access until pKVM owns the BPMP power-domain lifetime
+     - VIC, NVDEC, and NVJPG engines
+     - Deferred
 
 Source Anchors
 ==============

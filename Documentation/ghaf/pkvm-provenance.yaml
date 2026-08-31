@@ -22,7 +22,7 @@ branches:
   integration_followup: integration/orin-pkvm-v7.1.7-r2
   integration_followup_parent: e23a41d18ec23036ab5164adf5c79919b999a61d
   integration_r3: integration/orin-pkvm-v7.1.7-r3
-  integration_r3_parent: f426336ea21151f862bec492403b5fbb1a98617f
+  integration_r3_parent: f426336ea21198b3fcc8120b6cee6d64244a85fc
 
 # Stable IDs shared with the RST dependency table. A dependency change updates
 # this list, the matching RST row, and the applicable validation evidence in
@@ -144,15 +144,20 @@ dependencies:
     internal: {consumer: protected-rtl8822ce-registration-reset-bar-dma-and-msi}
     gate: build-traffic-active-teardown-cycles-and-clean-fault-scans
   - id: kernel-guivm-reset-r3
-    external: {owners: [linux-pkvm-device-lifecycle, linux-host1x, nvidia-l4t-r36.5-gpu-display], base_commit: f426336ea21151f862bec492403b5fbb1a98617f}
-    adaptation: {status: source-derived-local-followup, commit: 262b04e976f7d6e37cd97499a90d46dd77553732, mapping: gui_vm_r3.reset_contract}
+    external: {owners: [linux-pkvm-device-lifecycle, linux-host1x, nvidia-l4t-r36.5-gpu-display], base_commit: f426336ea21198b3fcc8120b6cee6d64244a85fc}
+    adaptation: {status: local-followup-series, commits: [262b04e976f738b1a65d32500f97538865e73e2d, eba09c346747d54c1ca09fe8356f6fd36161b132, dcada37f09e729ff657a8381bf2a60a087ca0b22, 44a5c383be949d49b048b9ea16811f3548f1b80a, 1a2820fcb30e7d114a48d36c1d4cf181e1728543, 23e790ee9c09a10eea713933cfadc759fd17bbc8, 7a290b85d63207794ed5c469527bbcc75f074590], mapping: gui_vm_r3.reset_contract}
     internal: {consumer: protected-accelerated-guivm-eleven-platform-resources}
-    gate: kernel-build-protected-boot-accelerated-display-repeated-teardown
+    gate: kernel-build-protected-boot-accelerated-display-first-teardown
   - id: jetpack-guivm-linux71
     external: {owners: [nvidia-l4t-r36.5-gpu-display, linux-7.1-apis], base_commit: 9ad43a2697bc3da7e9b4911192607df6541b90e4}
-    adaptation: {status: provider-owned-followup, commits: [6d1f6fbf04b39bbc86c9d2deaaa6e8c3f8248c95, ec26ef0dac4ffba1e6bc15e79c3989b801359f6f]}
+    adaptation: {status: provider-owned-followup, pull_request: 23, commits: [6d1f6fbf04b39bbc86c9d2deaaa6e8c3f8248c95, ec26ef0dac4ffba1e6bc15e79c3989b801359f6f, 5ea15c24da32b1c0b5937eeb6d14b75609f0cf33, 278ebc4004ca89bbeb6d217db137026cb31fc63d]}
     internal: {consumer: linux-7.1-accelerated-guivm-module-closure-and-devfreq-governor}
-    gate: full-cross-image-and-identified-agx-unprotected-gui-runtime
+    gate: full-cross-image-and-identified-agx-protected-gui-runtime
+  - id: ghaf-crosvm-guivm-r3
+    external: {owner: tiiuae/ghaf-crosvm, base_pull_request: 13, base_commit: 718c58c3606bd6c33069fb48b716bf7297287833}
+    adaptation: {status: provider-owned-followup, pull_request: 14, commits: [ffd1e61f34c2117be76c7081a8b2235231b4334a, 06178f3cb57e616310dc1653d4dd98f7fb658286]}
+    internal: {consumer: dce-emulated-mmio-and-shared-pviommu-per-vfio-group}
+    gate: crosvm-build-multidevice-display-group-attach-and-clean-exit
   - id: ghaf-guivm-linux71
     external: {dependencies: [jetpack-guivm-linux71, ghaf-parent, ghaf-pci-wlan-consumer]}
     adaptation: {status: ghaf-intermediate-followup, commit: 21f986176ee4b9a048e7f02748b3f26d21b4dc02}
@@ -164,10 +169,10 @@ dependencies:
     internal: {consumer: host-owned-046d-c52b-logitech-k400-event-stream-to-guivm, trusted_input: false}
     gate: unit-tests-clippy-reuse-generated-config-and-runtime-input
   - id: ghaf-protected-guivm-r3
-    external: {dependencies: [kernel-guivm-reset-r3, jetpack-guivm-linux71, ghaf-device-manager-guivm-evdev]}
-    adaptation: {status: ghaf-protected-composition, commit: 16b65edbc0b526b415e5a074105fc322c4286286}
+    external: {dependencies: [kernel-guivm-reset-r3, jetpack-guivm-linux71, ghaf-crosvm-guivm-r3, ghaf-device-manager-guivm-evdev]}
+    adaptation: {status: ghaf-protected-composition, commits: [16b65edbc0b526b415e5a074105fc322c4286286, 028e05e0c9c5c13b26c9dc83c535545123d5eeb1, 8ea80e1ae74141055a0d7f5efd22873099534179, 03f4b5f918abc83bb28996b30ad02d26773b8995]}
     internal: {consumer: protected-admin-net-and-accelerated-guivm-eleven-pkvm-iommu-resources, guest_memory_mib: 8192}
-    gate: full-cross-image-protected-boot-accelerated-display-input-and-repeated-teardown
+    gate: full-cross-image-protected-boot-accelerated-display-and-first-teardown
   - id: microvm-pci-wlan
     external: {owner: microvm-nix/microvm.nix, base_pull_request: 586, base_commit: 0299f2d5faf597795ae78aab064eece23154b2b0}
     adaptation: {status: provider-owned-followup, pull_request: 589, commit: 254dccf3f126e22e929f3e6d32399a45f55cf977}
@@ -268,51 +273,37 @@ integration_followup_commits:
   - {id: pci-msi-aperture, commit: 24e85e20b92b65cfae1b0881c98a391f32c346b0, depends_on: [android-pviommu, pci-vfio-admission]}
 
 gui_vm_r3:
-  kernel_parent: f426336ea21151f862bec492403b5fbb1a98617f
-  reset_commit: 262b04e976f7d6e37cd97499a90d46dd77553732
+  kernel_parent: f426336ea21198b3fcc8120b6cee6d64244a85fc
+  kernel_head: 7a290b85d63207794ed5c469527bbcc75f074590
+  initial_reset_commit: 262b04e976f738b1a65d32500f97538865e73e2d
+  deferred_reset_commit: 7a290b85d63207794ed5c469527bbcc75f074590
   provider_commits:
     linux_7_1_gpu_guest: 6d1f6fbf04b39bbc86c9d2deaaa6e8c3f8248c95
     devfreq_governor_fix: ec26ef0dac4ffba1e6bc15e79c3989b801359f6f
+    dce_mmio: 5ea15c24da32b1c0b5937eeb6d14b75609f0cf33
+    display_support: 278ebc4004ca89bbeb6d217db137026cb31fc63d
+    crosvm_dce_mmio: ffd1e61f34c2117be76c7081a8b2235231b4334a
+    crosvm_shared_pviommu: 06178f3cb57e616310dc1653d4dd98f7fb658286
   ghaf_linux_7_1_intermediate: 21f986176ee4b9a048e7f02748b3f26d21b4dc02
   device_manager_base: 97835a588f651e915b3812a045164eac64fee1ed
   device_manager_evdev_commit: 20148e27488eedffc18023584142e22727167963
   ghaf_protected_composition: 16b65edbc0b526b415e5a074105fc322c4286286
   reset_contract:
-    - resources: [60000000.vm_hs_p, 80000000.vm_cma_p, b0000000.scanout_p]
-      external: {owner: jetpack-nixos, paths: [pkgs/orin-virtualization-support/manifest.nix, pkgs/orin-virtualization-support/device-trees/gpu-vm/gpu_passthrough_overlay.dts]}
-      adaptation: explicit-mandatory-reset-callback-no-register-access
-      internal: guest-heaps-and-host-mediated-scanout
-      reset_class: non-executing-memory
-    - resources: [13830000.disp_caps_pt, 138c8000.disp_cursor_pt]
-      external: {owner: nvidia-l4t-r36.5, contracts: [NVC673_DISP_CAPABILITIES, NVC67A_CURSOR_IMM_CHANNEL_PIO]}
-      adaptation: explicit-mandatory-reset-callback-no-dma-engine
-      internal: read-only-capabilities-and-immediate-cursor-methods
-      reset_class: read-pio-wrapper
-    - resources: [13870000.disp_chan_pt]
-      external: {owner: nvidia-l4t-r36.5, paths: [nvdisplay/src/common/sdk/nvidia/inc/class/clc67d.h, nvdisplay/src/nvidia-modeset/src/nvkms-rm.c]}
-      adaptation: reclaim-evo-pages-and-set-put-to-hardware-get
-      internal: dce-mediated-core-and-window-command-channels
-      reset_class: doorbell-quiesce
-    - resources: [17000000.gpu]
-      external: {owner: nvidia-l4t-r36.5, paths: [nvgpu/drivers/gpu/nvgpu/hal/mc/mc_ga10b_fusa.c, nvgpu/drivers/gpu/nvgpu/hal/mc/mc_intr_ga10b_fusa.c]}
-      adaptation: mask-top-interrupts-clear-mc-device-enable-and-poll
-      internal: ga10b-graphics-and-copy-engines
-      reset_class: hardware-reset
-    - resources: [13e00000.host1x_pt]
-      external: {owner: linux-stable, paths: [drivers/gpu/host1x/hw/cdma_hw.c, drivers/gpu/host1x/hw/hw_host1x08_vm.h]}
-      adaptation: dma-stop-command-stop-and-teardown-all-63-channels
-      internal: host1x-command-dma-for-vic-nvdec-nvjpg
-      reset_class: dma-teardown
-    - resources: [15340000.vic, 15540000.nvjpg]
-      external: {owners: [linux-stable, nvidia-l4t-r36.5], paths: [drivers/gpu/drm/tegra/falcon.h, nvgpu/drivers/gpu/nvgpu/hal/falcon/falcon_gk20a_fusa.c]}
-      adaptation: mask-irqs-disable-method-interface-assert-cpuctl-hreset
-      internal: vic-and-nvjpg-firmware-processors
-      reset_class: firmware-reset
-    - resources: [15480000.nvdec]
-      external: {owner: linux-stable, path: drivers/gpu/drm/tegra/riscv.c}
-      adaptation: clear-boot-dma-configuration-and-riscv-start-latch
-      internal: nvdec-firmware-processor
-      reset_class: firmware-quiesce
+    - resources: [60000000.vm_hs_p, 80000000.vm_cma_p, b0000000.scanout_p, 13830000.disp_caps_pt, 138c8000.disp_cursor_pt]
+      external: {owners: [jetpack-nixos, nvidia-l4t-r36.5], contracts: [virtualization-manifest, display-capabilities, cursor-pio]}
+      adaptation: explicit-callback-no-register-access
+      internal: memory-and-pio-wrapper-resources
+      reset_class: deferred
+    - resources: [13870000.disp_chan_pt, 17000000.gpu, 13e00000.host1x_pt]
+      external: {owners: [linux-stable, nvidia-l4t-r36.5], contracts: [display-channel, ga10b-mc, host1x-channel-reset]}
+      adaptation: defer-until-pkvm-owns-bpmp-power-domain-lifetime
+      internal: display-gpu-and-host1x-dma-engines
+      reset_class: deferred
+    - resources: [15340000.vic, 15480000.nvdec, 15540000.nvjpg]
+      external: {owners: [linux-stable, nvidia-l4t-r36.5], contracts: [falcon-reset, nvdec-riscv-boot]}
+      adaptation: defer-until-pkvm-owns-bpmp-power-domain-lifetime
+      internal: vic-nvdec-and-nvjpg-engines
+      reset_class: deferred
   intermediate_validation:
     status: passed
     protection: disabled
@@ -324,14 +315,17 @@ gui_vm_r3:
     devfreq_oops: absent
     retained_baseline: tegra-bpmp-initcall-preemption-imbalance-warning
   protected_validation:
-    status: build-passed-runtime-pending
+    status: first-boot-display-and-teardown-passed
     topology: {protected_vms: [admin-vm, net-vm, gui-vm], guest_memory_mib: 8192, host_memory_cap_gib: 12}
     gui_assignment: {resources: 11, iommu: pkvm-iommu, protection: protected-without-firmware}
     input: {mode: host-mediated-evdev, trusted_input: false, usb_receiver: "046d:c52b"}
     image:
-      store_path: /nix/store/z60l0m448d8nimq4hhlwkvhsd4yx3i8d-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
-      size_bytes: 10661609813
-      sha256: b08285ee00b48818ca2550ee04c5b063b1fff09efcdb8f8f556d0d8de877ff21
+      store_path: /nix/store/v7yqiifg9vk0d0afd0wlg8z59xfb5xnw-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+      size_bytes: 10658775590
+      sha256: f2bb91b3ac35554d206705058042ce2bca4f8cd6892311150d1665e70815d782
+      source_form: local-path-overrides
+    runtime: {kernel: 7.1.7, autostart: true, drm: present, dp1: connected, mode: 3440x1440, fence_errors: 0, host1x_open_errors: 0, first_teardown: passed, rm_deinit: success, critical_scan: clean}
+    limitations: {gpu_physical_sg_iommu_bypass: true, hardware_engine_reset: deferred, same_boot_restart: unsupported, dce_ffff: known-nonfatal}
 
 ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4
