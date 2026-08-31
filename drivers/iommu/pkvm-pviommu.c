@@ -10,6 +10,7 @@
 #include <linux/of_platform.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/xarray.h>
 
 #define ASSERT(cond)							\
@@ -293,6 +294,23 @@ static struct iommu_domain *pviommu_domain_alloc_paging(struct device *dev)
 {
 	struct pviommu_domain *pv_domain;
 	struct arm_smccc_res res;
+	u64 aperture_start = 0;
+	u32 address_bits;
+	bool has_address_bits, has_aperture_start;
+
+	has_address_bits = !device_property_read_u32(dev,
+						     "pkvm,iova-address-bits",
+						     &address_bits);
+	has_aperture_start = !device_property_read_u64(dev,
+						       "pkvm,iova-address-start",
+						       &aperture_start);
+	if (has_aperture_start && !has_address_bits)
+		return ERR_PTR(-EINVAL);
+	if (has_address_bits &&
+	    (!address_bits || address_bits >= BITS_PER_LONG ||
+	     aperture_start >= BIT_ULL(address_bits) ||
+	     !IS_ALIGNED(aperture_start, PAGE_SIZE)))
+		return ERR_PTR(-ERANGE);
 
 	pv_domain = kzalloc(sizeof(*pv_domain), GFP_KERNEL);
 	if (!pv_domain)
@@ -309,6 +327,12 @@ static struct iommu_domain *pviommu_domain_alloc_paging(struct device *dev)
 
 	pv_domain->id = res.a1;
 	pv_domain->domain.pgsize_bitmap = pgsize_bitmap;
+	if (has_address_bits) {
+		pv_domain->domain.geometry.aperture_start = aperture_start;
+		pv_domain->domain.geometry.aperture_end =
+			BIT_ULL(address_bits) - 1;
+		pv_domain->domain.geometry.force_aperture = true;
+	}
 	return &pv_domain->domain;
 }
 
@@ -367,29 +391,41 @@ static int pviommu_of_xlate(struct device *dev, const struct of_phandle_args *ar
 	return iommu_fwspec_add_ids(dev, args->args, args->args_count);
 }
 
-static struct iommu_group *pviommu_group_alloc_get(struct device *dev, int group_id)
+static struct iommu_group *pviommu_group_alloc_get(struct device *dev, u32 group_id)
 {
 	struct iommu_group *group;
+	int ret;
 
 	group = xa_load(&pviommu_groups, (unsigned long)group_id);
 	if (group)
-		return group;
+		return iommu_group_ref_get(group);
 
 	group = iommu_group_alloc();
-	if (!IS_ERR(group))
+	if (IS_ERR(group))
 		return group;
 
-	if (WARN_ON(xa_insert(&pviommu_groups, (unsigned long)group_id, group, GFP_KERNEL)))
-		dev_err(dev,
-			"Failed to track group %d this will lead to multiple groups instead of one\n",
-			group_id);
+	ret = xa_insert(&pviommu_groups, (unsigned long)group_id, group,
+			GFP_KERNEL);
+	if (ret == -EBUSY) {
+		iommu_group_put(group);
+		group = xa_load(&pviommu_groups, (unsigned long)group_id);
+		return group ? iommu_group_ref_get(group) : ERR_PTR(-ENODEV);
+	}
+	if (ret) {
+		dev_err(dev, "Failed to track pvIOMMU group %u: %d\n",
+			group_id, ret);
+		iommu_group_put(group);
+		return ERR_PTR(ret);
+	}
 
-	return group;
+	/* The xarray owns the allocation reference; the caller gets another. */
+	return iommu_group_ref_get(group);
 }
 
 static struct iommu_group *pviommu_device_group(struct device *dev)
 {
 	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
+	u32 group_id;
 
 	if (!fwspec)
 		return ERR_PTR(-ENODEV);
@@ -397,6 +433,10 @@ static struct iommu_group *pviommu_device_group(struct device *dev)
 	if (dev_is_pci(dev)) {
 		return pci_device_group(dev);
 	} else {
+		/* Crosvm preserves the host VFIO group for platform devices. */
+		if (!device_property_read_u32(dev, "pkvm,iommu-group-id",
+					      &group_id))
+			return pviommu_group_alloc_get(dev, group_id);
 		if (fwspec->num_ids == 1)
 			return generic_device_group(dev);
 		else

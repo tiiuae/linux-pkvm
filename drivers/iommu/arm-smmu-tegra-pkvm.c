@@ -426,10 +426,18 @@ static struct iommu_domain *pkvm_tegra_domain_alloc_paging(struct device *dev)
 {
 	struct pkvm_tegra_master *master = dev_iommu_priv_get(dev);
 	struct pkvm_tegra_domain *domain;
+	u32 address_bits, requested_bits;
 	int ret;
 
 	if (!master)
 		return ERR_PTR(-ENODEV);
+	address_bits = min(master->smmu->address_bits, 32U);
+	if (!device_property_read_u32(dev, "pkvm,iova-address-bits",
+				      &requested_bits)) {
+		if (!requested_bits || requested_bits > master->smmu->address_bits)
+			return ERR_PTR(-ERANGE);
+		address_bits = requested_bits;
+	}
 	domain = kzalloc_obj(*domain, GFP_KERNEL);
 	if (!domain)
 		return ERR_PTR(-ENOMEM);
@@ -443,8 +451,7 @@ static struct iommu_domain *pkvm_tegra_domain_alloc_paging(struct device *dev)
 	INIT_DELAYED_WORK(&domain->debug_work, pkvm_tegra_debug_workfn);
 	domain->domain.ops = &pkvm_tegra_paging_ops;
 	domain->domain.pgsize_bitmap = PAGE_SIZE;
-	domain->domain.geometry.aperture_end =
-		BIT_ULL(master->smmu->address_bits) - 1;
+	domain->domain.geometry.aperture_end = BIT_ULL(address_bits) - 1;
 	domain->domain.geometry.force_aperture = true;
 
 	ret = kvm_iommu_alloc_domain(pkvm_tegra_hyp_driver, master->smmu->id,
@@ -582,6 +589,14 @@ static int pkvm_tegra_default_domain(struct device *dev)
 	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
 
 	/*
+	 * A host-only firmware device may require explicit IOVA aliases even
+	 * though ordinary Tegra clients run in the protected identity domain.
+	 * Keep this opt-in so existing host DMA remains identity mapped.
+	 */
+	if (device_property_read_bool(dev, "pkvm,paging-domain"))
+		return 0;
+
+	/*
 	 * XUSB cannot use the physical-address identity context on Tegra234.
 	 * Keep its DMA mappings explicit and owned by the pKVM IOMMU backend.
 	 */
@@ -717,12 +732,6 @@ static int pkvm_tegra_probe(struct platform_device *pdev)
 	hyp_smmu->stream_match_mask = mask;
 	host_smmu->address_bits = min3(hyp_smmu->ias, hyp_smmu->oas,
 				       get_kvm_ipa_limit());
-	/*
-	 * Keep translated-domain IOVAs below 4 GiB.  Identity-domain clients
-	 * still use their physical DMA addresses, and the SMMU output address
-	 * size remains unchanged for buffers above 4 GiB.
-	 */
-	host_smmu->address_bits = min(host_smmu->address_bits, 32U);
 	host_smmu->mc = devm_tegra_memory_controller_get(dev);
 	if (IS_ERR(host_smmu->mc))
 		return PTR_ERR(host_smmu->mc);
