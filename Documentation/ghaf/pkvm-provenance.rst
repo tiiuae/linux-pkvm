@@ -404,3 +404,50 @@ It is a separate Nix realization from the locally sourced flashed artifact,
 not a byte-identity claim.  The kernel, Crosvm, and microvm source trees used
 for the runtime campaign are exactly the trees published at the pinned
 commits above.
+
+Protected Accelerated GUIVM R3 Boundary
+========================================
+
+The R3 code boundary is ``7a290b85d632`` on draft linux-pkvm PR #3.  Draft
+Crosvm PR #14 ends at ``06178f3cb57e`` and draft Jetpack PR #23 ends at
+``278ebc4004ca``.  Ghaf draft PR #2190 pins those exact commits at
+``03f4b5f918ab``.  PR #2190 is logically stacked on PR #2188 without
+rewriting it; because the parent is a contributor-fork branch, the draft
+temporarily targets ``main`` and displays the inherited stack.
+
+The hardware-tested image is
+``/nix/store/v7yqiifg9vk0d0afd0wlg8z59xfb5xnw-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu``.
+It is 10,658,775,590 bytes with SHA-256
+``f2bb91b3ac35554d206705058042ce2bca4f8cd6892311150d1665e70815d782``.
+It used local source overrides and was flashed only to AGX TOPO serial
+``TOPOED73D35C`` with the long ``--signed-sd-image`` and ``--usb-instance``
+options.  Secure boot was not requested, NX APX was absent, and persistent
+``/tmp/rcm_state`` remained unchanged.
+
+On a fresh production boot, protected AdminVM, NetVM, and GUIVM autostarted
+with zero service restarts.  Host and GUIVM ran Linux 7.1.7.  GUIVM loaded
+``host1x_fence``, ``nvgpu``, ``nvmap``, ``host1x``, and ``tegra_drm``;
+exposed the fence and DRM nodes; ran greetd and COSMIC; and reported DP-1
+connected with 3440x1440 available.  At 202.58 seconds, fence-allocation and
+host1x-open error counts were zero.  One teardown printed
+``RmDeInit completed successfully`` and exited successfully while AdminVM and
+NetVM remained active.  Host and guest critical signature scans were empty.
+
+An exact committed-source rebuild passed at
+``/nix/store/57wms1dk66arv5w3rjzsdsvbhhxi0ag1-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu``.
+It is 10,660,011,930 bytes with SHA-256
+``d0d8ec0ede76d4d98e86dd7da584aa3f6c3d615c15a667f8d0c12ca76c477684``.
+The independent rebuild from only the published immutable pins also passed
+at
+``/nix/store/xqrd52g7didgyndj1ll4d3qvr3f8xqga-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu``.
+It is 10,659,015,662 bytes with SHA-256
+``d7fb593a8227a436e98a6824a9bffee37363ca96011a651400f3023e5bce22bb``.
+Both rebuilds are unflashed source/build gates, not byte-identity claims for
+the hardware-tested artifact.  ``nix fmt -- --fail-on-change``, REUSE over
+887 files, and ``checks.x86_64-linux.orin-crosvm-targets`` passed.
+
+R3 is not yet a security-complete protected desktop.  GA10B physical
+scatterlists bypass guest-IOMMU translation, GUI engine hardware reset is
+deferred while the blocks are power-gated, and same-boot GUIVM restart is not
+supported.  The DCE ``0xffff`` diagnostic remains known and non-fatal.  The
+successful first teardown does not satisfy those follow-up gates.

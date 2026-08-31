@@ -324,6 +324,14 @@ gui_vm_r3:
       size_bytes: 10658775590
       sha256: f2bb91b3ac35554d206705058042ce2bca4f8cd6892311150d1665e70815d782
       source_form: local-path-overrides
+    pinned_rebuild:
+      store_path: /nix/store/xqrd52g7didgyndj1ll4d3qvr3f8xqga-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+      size_bytes: 10659015662
+      sha256: d7fb593a8227a436e98a6824a9bffee37363ca96011a651400f3023e5bce22bb
+      source_form: published-immutable-pins
+      flashed: false
+    pull_requests: {linux_pkvm: 3, ghaf_crosvm: 14, jetpack_nixos: 23, ghaf: 2190}
+    focused_check: checks.x86_64-linux.orin-crosvm-targets
     runtime: {kernel: 7.1.7, autostart: true, drm: present, dp1: connected, mode: 3440x1440, fence_errors: 0, host1x_open_errors: 0, first_teardown: passed, rm_deinit: success, critical_scan: clean}
     limitations: {gpu_physical_sg_iommu_bypass: true, hardware_engine_reset: deferred, same_boot_restart: unsupported, dce_ffff: known-nonfatal}
 
