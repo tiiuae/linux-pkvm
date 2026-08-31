@@ -15,6 +15,8 @@
 
 #include <hyp/fault.h>
 
+#include <kvm/device.h>
+
 #include <nvhe/arm-smccc.h>
 #include <nvhe/gfp.h>
 #include <nvhe/memory.h>
@@ -1744,6 +1746,7 @@ int __pkvm_use_dma(phys_addr_t phys, size_t size, struct pkvm_hyp_vm *vm)
 {
 	struct kvm_mem_range range;
 	struct memblock_region *reg;
+	bool shared_resource;
 	u64 end;
 	int ret;
 
@@ -1751,12 +1754,14 @@ int __pkvm_use_dma(phys_addr_t phys, size_t size, struct pkvm_hyp_vm *vm)
 	    check_add_overflow(phys, size, &end))
 		return -EINVAL;
 
+	shared_resource = vm && pkvm_device_is_shared_resource(vm, phys, size);
 	reg = find_mem_range(phys, &range);
-	if (!is_in_mem_range(end - 1, &range) || (vm && !reg))
+	if (!is_in_mem_range(end - 1, &range) ||
+	    (vm && !reg && !shared_resource))
 		return -EINVAL;
 
 	host_lock_component();
-	if (vm) {
+	if (vm && reg) {
 		for_each_hyp_page(page, phys, size)
 			hyp_page_ref_inc(page);
 		ret = 0;
@@ -1796,7 +1801,7 @@ int __pkvm_unuse_dma(phys_addr_t phys, size_t size, struct pkvm_hyp_vm *vm)
 		return -EINVAL;
 
 	reg = find_mem_range(phys, &range);
-	if (!is_in_mem_range(end - 1, &range) || (vm && !reg))
+	if (!is_in_mem_range(end - 1, &range))
 		return -EINVAL;
 
 	/* MMIO remains tainted after its first DMA mapping. */
@@ -1960,6 +1965,70 @@ out:
 	return ret;
 }
 
+int pkvm_map_guest_shared_resource(struct pkvm_hyp_vcpu *hyp_vcpu,
+				   u64 phys, u64 size)
+{
+	struct pkvm_hyp_vm *vm = pkvm_hyp_vcpu_to_hyp_vm(hyp_vcpu);
+	u64 end;
+	int ret;
+
+	if (!size || !PAGE_ALIGNED(phys | size) ||
+	    check_add_overflow(phys, size, &end))
+		return -EINVAL;
+
+	/*
+	 * The device-registration path restricts this exception to immutable
+	 * DT-described apertures. Keep the host mapping and ownership state
+	 * unchanged: these ranges are intentionally shared with a host-side
+	 * device proxy rather than donated to the protected guest.
+	 */
+	guest_lock_component(vm);
+
+	ret = __guest_check_page_state_range(vm, phys, size, PKVM_NOPAGE);
+	if (ret)
+		goto unlock;
+
+	ret = __guest_check_pgtable_memcache(hyp_vcpu);
+	if (ret)
+		goto unlock;
+
+	ret = kvm_pgtable_stage2_map(&vm->pgt, phys, size, phys,
+				     pkvm_mkstate(KVM_PGTABLE_PROT_RW |
+						   KVM_PGTABLE_PROT_NORMAL_NC,
+						   PKVM_PAGE_SHARED_BORROWED),
+				     &hyp_vcpu->vcpu.arch.pkvm_memcache, 0);
+	if (ret)
+		WARN_ON(kvm_pgtable_stage2_unmap(&vm->pgt, phys, size));
+
+unlock:
+	guest_unlock_component(vm);
+	return ret;
+}
+
+int pkvm_unmap_guest_shared_resource(struct pkvm_hyp_vm *vm,
+				     u64 phys, u64 size)
+{
+	u64 end;
+	int ret;
+
+	if (!size || !PAGE_ALIGNED(phys | size) ||
+	    check_add_overflow(phys, size, &end))
+		return -EINVAL;
+
+	guest_lock_component(vm);
+
+	ret = __guest_check_page_state_range(vm, phys, size,
+					     PKVM_PAGE_SHARED_BORROWED);
+	if (ret)
+		goto unlock;
+
+	ret = kvm_pgtable_stage2_unmap(&vm->pgt, phys, size);
+
+unlock:
+	guest_unlock_component(vm);
+	return ret;
+}
+
 int pkvm_get_guest_pa_request(struct pkvm_hyp_vcpu *hyp_vcpu, u64 ipa,
 			      size_t ipa_size, u64 *out_pa, s8 *out_level)
 {
@@ -2001,10 +2070,19 @@ int pkvm_get_guest_pa_request_use_dma(struct pkvm_hyp_vcpu *hyp_vcpu,
 	struct kvm_hyp_req *req;
 	enum pkvm_page_state state;
 	struct kvm_mem_range range;
+	struct memblock_region *reg;
 	kvm_pte_t pte;
+	bool shared_resource;
 	size_t pin_size;
 	u64 off;
 	int ret;
+
+	/*
+	 * Device-backed shared apertures are immutable, identity-mapped resources
+	 * registered by the host DT.  Resolve that policy before taking the
+	 * host/guest page-table locks to preserve the device -> guest lock order.
+	 */
+	shared_resource = pkvm_device_is_shared_resource(vm, ipa, ipa_size);
 
 	host_lock_component();
 	guest_lock_component(vm);
@@ -2017,25 +2095,28 @@ int pkvm_get_guest_pa_request_use_dma(struct pkvm_hyp_vcpu *hyp_vcpu,
 		goto unlock;
 	}
 
+	*out_pa = kvm_pte_to_phys(pte) |
+		  ((ipa & (kvm_granule_size(*out_level) - 1)) & PAGE_MASK);
 	state = pkvm_getstate(kvm_pgtable_stage2_pte_prot(pte));
-	if (state != PKVM_PAGE_OWNED) {
+	if (state != PKVM_PAGE_OWNED &&
+	    !(state == PKVM_PAGE_SHARED_BORROWED && shared_resource &&
+	      *out_pa == ipa)) {
 		ret = -EPERM;
 		goto unlock;
 	}
 
-	*out_pa = kvm_pte_to_phys(pte) |
-		  ((ipa & (kvm_granule_size(*out_level) - 1)) & PAGE_MASK);
 	off = *out_pa - ALIGN_DOWN(*out_pa, kvm_granule_size(*out_level));
 	pin_size = min(kvm_granule_size(*out_level) - off, ipa_size);
+	reg = find_mem_range(*out_pa, &range);
 	if (!PAGE_ALIGNED(*out_pa) || !PAGE_ALIGNED(pin_size) ||
-	    !find_mem_range(*out_pa, &range) ||
 	    !is_in_mem_range(*out_pa + pin_size - 1, &range)) {
 		ret = -EINVAL;
 		goto unlock;
 	}
 
-	for_each_hyp_page(page, *out_pa, pin_size)
-		hyp_page_ref_inc(page);
+	if (reg)
+		for_each_hyp_page(page, *out_pa, pin_size)
+			hyp_page_ref_inc(page);
 unlock:
 	guest_unlock_component(vm);
 	host_unlock_component();

@@ -1684,10 +1684,8 @@ static int pkvm_mem_abort_device(const struct kvm_s2_fault_desc *s2fd)
 	if (is_error_noslot_pfn(pfn))
 		return -EREMOTEIO;
 
-	if (pfn_is_map_memory(pfn)) {
+	if (pfn_is_map_memory(pfn))
 		kvm_release_faultin_page(s2fd->vcpu->kvm, page, true, writable);
-		return -EREMOTEIO;
-	}
 
 	ret = kvm_call_refill_hyp_nvhe(__pkvm_host_map_guest_mmio, pfn, gfn);
 	/* Another vCPU may have completed the mapping first. */

@@ -60,6 +60,18 @@
 #define PKVM_TEGRA_RTW_RX_TAG_EN		BIT(15)
 #define PKVM_TEGRA_RTW_PFM_WOWL		BIT(3)
 
+#define PKVM_TEGRA_GUI_VM_HS_BASE	0x60000000
+#define PKVM_TEGRA_GUI_VM_CMA_BASE	0x80000000
+#define PKVM_TEGRA_GUI_SCANOUT_BASE	0xb0000000
+#define PKVM_TEGRA_GUI_DISP_CAPS_BASE	0x13830000
+#define PKVM_TEGRA_GUI_DISP_CHAN_BASE	0x13870000
+#define PKVM_TEGRA_GUI_DISP_CURSOR_BASE	0x138c8000
+#define PKVM_TEGRA_GUI_GPU_BASE		0x17000000
+#define PKVM_TEGRA_GUI_HOST1X_BASE	0x13e00000
+#define PKVM_TEGRA_GUI_VIC_BASE		0x15340000
+#define PKVM_TEGRA_GUI_NVDEC_BASE	0x15480000
+#define PKVM_TEGRA_GUI_NVJPG_BASE	0x15540000
+
 struct pkvm_tegra_hyp_smmu {
 	struct pkvm_tegra_smmu_device *params;
 	void __iomem *base[PKVM_TEGRA_SMMU_MAX_INSTANCES];
@@ -117,21 +129,33 @@ static struct pkvm_tegra_mgbe tegra_mgbe0 = {
 	.mac_base = PKVM_TEGRA_MGBE0_MAC_BASE,
 };
 
-static int tegra_reclaim_device_reset_page(phys_addr_t phys)
+static int tegra_reclaim_device_reset_range(phys_addr_t phys, size_t size)
 {
 	int ret;
 
-	ret = pkvm_reclaim_guest_mmio_to_host(phys, PAGE_SIZE);
+	ret = pkvm_reclaim_guest_mmio_to_host(phys, size);
 	if (ret)
 		return ret;
 
-	return pkvm_host_donate_hyp_mmio(phys >> PAGE_SHIFT, 1,
+	return pkvm_host_donate_hyp_mmio(phys >> PAGE_SHIFT,
+					 size >> PAGE_SHIFT,
 					 PAGE_HYP_DEVICE);
+}
+
+static int tegra_release_device_reset_range(phys_addr_t phys, size_t size)
+{
+	return pkvm_hyp_reclaim_mmio(phys >> PAGE_SHIFT,
+				     size >> PAGE_SHIFT);
+}
+
+static int tegra_reclaim_device_reset_page(phys_addr_t phys)
+{
+	return tegra_reclaim_device_reset_range(phys, PAGE_SIZE);
 }
 
 static int tegra_release_device_reset_page(phys_addr_t phys)
 {
-	return pkvm_hyp_reclaim_mmio(phys >> PAGE_SHIFT, 1);
+	return tegra_release_device_reset_range(phys, PAGE_SIZE);
 }
 
 static int tegra_mgbe_reset(void *cookie, bool host_to_guest)
@@ -304,18 +328,62 @@ static struct pkvm_device_ops tegra_rtw8822ce_ops = {
 	.reset = tegra_rtw8822ce_reset,
 };
 
+/*
+ * The GUI engines are power-gated by the guest. Accessing their registers
+ * from EL2 before guest probe or after guest shutdown raises a fatal Tegra
+ * CBB PWRDOWN_ERR. Keep the reset callback explicit so device assignment is
+ * admitted, but defer the register-level reset until pKVM can hold the BPMP
+ * power domain on across the callback. The generic teardown path still
+ * blocks DMA and reclaims every non-shared aperture.
+ */
+static int tegra_gui_deferred_reset(void *cookie, bool host_to_guest)
+{
+	return 0;
+}
+
+static struct pkvm_device_ops tegra_gui_deferred_reset_ops = {
+	.reset = tegra_gui_deferred_reset,
+};
+
+static void tegra_register_device_ops(phys_addr_t phys,
+				      struct pkvm_device_ops *ops,
+				      void *cookie)
+{
+	int ret = pkvm_device_register_ops(phys, ops, cookie);
+
+	WARN_ON(ret && ret != -ENODEV);
+}
+
 static void tegra_init_devices(void)
 {
-	int ret;
+	tegra_register_device_ops(tegra_mgbe0.hv_base, &tegra_mgbe_ops,
+				  &tegra_mgbe0);
+	tegra_register_device_ops(tegra_rtw8822ce.bar_base,
+				  &tegra_rtw8822ce_ops, &tegra_rtw8822ce);
 
-	ret = pkvm_device_register_ops(tegra_mgbe0.hv_base, &tegra_mgbe_ops,
-				       &tegra_mgbe0);
-	WARN_ON(ret && ret != -ENODEV);
-
-	ret = pkvm_device_register_ops(tegra_rtw8822ce.bar_base,
-				       &tegra_rtw8822ce_ops,
-				       &tegra_rtw8822ce);
-	WARN_ON(ret && ret != -ENODEV);
+	/* All GUI resources use the deferred reset policy described above. */
+	tegra_register_device_ops(PKVM_TEGRA_GUI_VM_HS_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_VM_CMA_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_SCANOUT_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_DISP_CAPS_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_DISP_CURSOR_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_DISP_CHAN_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_GPU_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_HOST1X_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_VIC_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_NVDEC_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
+	tegra_register_device_ops(PKVM_TEGRA_GUI_NVJPG_BASE,
+				  &tegra_gui_deferred_reset_ops, NULL);
 }
 
 static void __iomem *tegra_smmu_page(struct pkvm_tegra_hyp_smmu *smmu,

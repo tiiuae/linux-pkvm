@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
-schema: 2
+schema: 3
 generation: orin-pkvm-v55
 
 sources:
@@ -21,6 +21,8 @@ branches:
   integration_parent: ce9c31f559a956cf4603848329bfa4cc66c29205
   integration_followup: integration/orin-pkvm-v7.1.7-r2
   integration_followup_parent: e23a41d18ec23036ab5164adf5c79919b999a61d
+  integration_r3: integration/orin-pkvm-v7.1.7-r3
+  integration_r3_parent: f426336ea21198b3fcc8120b6cee6d64244a85fc
 
 # Stable IDs shared with the RST dependency table. A dependency change updates
 # this list, the matching RST row, and the applicable validation evidence in
@@ -119,7 +121,7 @@ dependencies:
   - id: ghaf-crosvm-create-vm
     external: {owner: tiiuae/ghaf-crosvm, commit: aa2478bef0750cc4013f24aa2cda472346db4a93}
     adaptation: {status: ghaf-retained-patch, path: targets/nvidia/jetson-orin/patches/crosvm-upstream-pkvm-create-vm.patch}
-    internal: {consumer: protected-admin-net-and-chromium-vms}
+    internal: {consumer: protected-admin-net-and-chromium-r1-r2-or-guivm-r3}
     gate: target-check-and-three-active-protected-vms
   - id: ghaf-tfa
     external: {owner: trusted-firmware-a, selection: jetpack-ghaf}
@@ -134,13 +136,43 @@ dependencies:
   - id: ghaf-service-plane
     external: {dependencies: [microvm-pr586, ghaf-consumer]}
     adaptation: {status: no-generated-kernel-patch}
-    internal: {consumer: admin-net-chromium-ordering-and-policy}
+    internal: {consumer: admin-net-and-chromium-r1-r2-or-guivm-r3-ordering-and-policy}
     gate: three-protected-vms-and-independent-netvm-recovery
   - id: kernel-pci-wlan-r2
     external: {owners: [linux-pci, tegra194-pcie, orin-pkvm-v55], base_commit: e23a41d18ec23036ab5164adf5c79919b999a61d}
     adaptation: {status: local-followup-series, commits: [8186853a251720392c2374993d3650aca452e1ba, 0ef1f2cb9fa29c16cf539c501c32773d948fc8f6, f3a727c742220a2fe1c3c6d93ab66d901421e805, 343f55bdfe252a7cca3b96c09cf42eea4e83f78b, 70ff32e1b2a70314a5aaf0dc28ae4dc9d876fc6c, ac6d1ae9140dd3094e1a40939fcadf07b84daf8e, f2a0b9dc204debfb3dc5528a1dd81de7247c5ab2, 24e85e20b92b65cfae1b0881c98a391f32c346b0]}
     internal: {consumer: protected-rtl8822ce-registration-reset-bar-dma-and-msi}
     gate: build-traffic-active-teardown-cycles-and-clean-fault-scans
+  - id: kernel-guivm-reset-r3
+    external: {owners: [linux-pkvm-device-lifecycle, linux-host1x, nvidia-l4t-r36.5-gpu-display], base_commit: f426336ea21198b3fcc8120b6cee6d64244a85fc}
+    adaptation: {status: local-followup-series, commits: [262b04e976f738b1a65d32500f97538865e73e2d, eba09c346747d54c1ca09fe8356f6fd36161b132, dcada37f09e729ff657a8381bf2a60a087ca0b22, 44a5c383be949d49b048b9ea16811f3548f1b80a, 1a2820fcb30e7d114a48d36c1d4cf181e1728543, 23e790ee9c09a10eea713933cfadc759fd17bbc8, 7a290b85d63207794ed5c469527bbcc75f074590], mapping: gui_vm_r3.reset_contract}
+    internal: {consumer: protected-accelerated-guivm-eleven-platform-resources}
+    gate: kernel-build-protected-boot-accelerated-display-first-teardown
+  - id: jetpack-guivm-linux71
+    external: {owners: [nvidia-l4t-r36.5-gpu-display, linux-7.1-apis], base_commit: 9ad43a2697bc3da7e9b4911192607df6541b90e4}
+    adaptation: {status: provider-owned-followup, pull_request: 23, commits: [6d1f6fbf04b39bbc86c9d2deaaa6e8c3f8248c95, ec26ef0dac4ffba1e6bc15e79c3989b801359f6f, 5ea15c24da32b1c0b5937eeb6d14b75609f0cf33, 278ebc4004ca89bbeb6d217db137026cb31fc63d]}
+    internal: {consumer: linux-7.1-accelerated-guivm-module-closure-and-devfreq-governor}
+    gate: full-cross-image-and-identified-agx-protected-gui-runtime
+  - id: ghaf-crosvm-guivm-r3
+    external: {owner: tiiuae/ghaf-crosvm, base_pull_request: 13, base_commit: 718c58c3606bd6c33069fb48b716bf7297287833}
+    adaptation: {status: provider-owned-followup, pull_request: 14, commits: [ffd1e61f34c2117be76c7081a8b2235231b4334a, 06178f3cb57e616310dc1653d4dd98f7fb658286]}
+    internal: {consumer: dce-emulated-mmio-and-shared-pviommu-per-vfio-group}
+    gate: crosvm-build-multidevice-display-group-attach-and-clean-exit
+  - id: ghaf-guivm-linux71
+    external: {dependencies: [jetpack-guivm-linux71, ghaf-parent, ghaf-pci-wlan-consumer]}
+    adaptation: {status: ghaf-intermediate-followup, commit: 21f986176ee4b9a048e7f02748b3f26d21b4dc02}
+    internal: {consumer: unprotected-accelerated-guivm-before-protected-composition}
+    gate: linux-7.1.8-nvhost-podgov-dp1-greetd-clean-devfreq-fault-scan
+  - id: ghaf-device-manager-guivm-evdev
+    external: {owner: tiiuae/ghaf-device-manager, base_commit: 97835a588f651e915b3812a045164eac64fee1ed}
+    adaptation: {status: provider-owned-followup, commit: 20148e27488eedffc18023584142e22727167963}
+    internal: {consumer: host-owned-046d-c52b-logitech-k400-event-stream-to-guivm, trusted_input: false}
+    gate: unit-tests-clippy-reuse-generated-config-and-runtime-input
+  - id: ghaf-protected-guivm-r3
+    external: {dependencies: [kernel-guivm-reset-r3, jetpack-guivm-linux71, ghaf-crosvm-guivm-r3, ghaf-device-manager-guivm-evdev]}
+    adaptation: {status: ghaf-protected-composition, commits: [16b65edbc0b526b415e5a074105fc322c4286286, 028e05e0c9c5c13b26c9dc83c535545123d5eeb1, 8ea80e1ae74141055a0d7f5efd22873099534179, 03f4b5f918abc83bb28996b30ad02d26773b8995]}
+    internal: {consumer: protected-admin-net-and-accelerated-guivm-eleven-pkvm-iommu-resources, guest_memory_mib: 8192}
+    gate: full-cross-image-protected-boot-accelerated-display-and-first-teardown
   - id: microvm-pci-wlan
     external: {owner: microvm-nix/microvm.nix, base_pull_request: 586, base_commit: 0299f2d5faf597795ae78aab064eece23154b2b0}
     adaptation: {status: provider-owned-followup, pull_request: 589, commit: 254dccf3f126e22e929f3e6d32399a45f55cf977}
@@ -239,6 +271,69 @@ integration_followup_commits:
   - {id: pci-dma-ownership, commit: ac6d1ae9140dd3094e1a40939fcadf07b84daf8e, depends_on: [pci-host-probe, orin-dma]}
   - {id: pci-bar-donation, commit: f2a0b9dc204debfb3dc5528a1dd81de7247c5ab2, depends_on: [pci-register, android-device]}
   - {id: pci-msi-aperture, commit: 24e85e20b92b65cfae1b0881c98a391f32c346b0, depends_on: [android-pviommu, pci-vfio-admission]}
+
+gui_vm_r3:
+  kernel_parent: f426336ea21198b3fcc8120b6cee6d64244a85fc
+  kernel_head: 7a290b85d63207794ed5c469527bbcc75f074590
+  initial_reset_commit: 262b04e976f738b1a65d32500f97538865e73e2d
+  deferred_reset_commit: 7a290b85d63207794ed5c469527bbcc75f074590
+  provider_commits:
+    linux_7_1_gpu_guest: 6d1f6fbf04b39bbc86c9d2deaaa6e8c3f8248c95
+    devfreq_governor_fix: ec26ef0dac4ffba1e6bc15e79c3989b801359f6f
+    dce_mmio: 5ea15c24da32b1c0b5937eeb6d14b75609f0cf33
+    display_support: 278ebc4004ca89bbeb6d217db137026cb31fc63d
+    crosvm_dce_mmio: ffd1e61f34c2117be76c7081a8b2235231b4334a
+    crosvm_shared_pviommu: 06178f3cb57e616310dc1653d4dd98f7fb658286
+  ghaf_linux_7_1_intermediate: 21f986176ee4b9a048e7f02748b3f26d21b4dc02
+  device_manager_base: 97835a588f651e915b3812a045164eac64fee1ed
+  device_manager_evdev_commit: 20148e27488eedffc18023584142e22727167963
+  ghaf_protected_composition: 16b65edbc0b526b415e5a074105fc322c4286286
+  reset_contract:
+    - resources: [60000000.vm_hs_p, 80000000.vm_cma_p, b0000000.scanout_p, 13830000.disp_caps_pt, 138c8000.disp_cursor_pt]
+      external: {owners: [jetpack-nixos, nvidia-l4t-r36.5], contracts: [virtualization-manifest, display-capabilities, cursor-pio]}
+      adaptation: explicit-callback-no-register-access
+      internal: memory-and-pio-wrapper-resources
+      reset_class: deferred
+    - resources: [13870000.disp_chan_pt, 17000000.gpu, 13e00000.host1x_pt]
+      external: {owners: [linux-stable, nvidia-l4t-r36.5], contracts: [display-channel, ga10b-mc, host1x-channel-reset]}
+      adaptation: defer-until-pkvm-owns-bpmp-power-domain-lifetime
+      internal: display-gpu-and-host1x-dma-engines
+      reset_class: deferred
+    - resources: [15340000.vic, 15480000.nvdec, 15540000.nvjpg]
+      external: {owners: [linux-stable, nvidia-l4t-r36.5], contracts: [falcon-reset, nvdec-riscv-boot]}
+      adaptation: defer-until-pkvm-owns-bpmp-power-domain-lifetime
+      internal: vic-nvdec-and-nvjpg-engines
+      reset_class: deferred
+  intermediate_validation:
+    status: passed
+    protection: disabled
+    hardware: {topo_serial: TOPOED73D35C, ecid: 0x80012344705DD3C96C0000000A0081C0}
+    kernel: 7.1.8
+    gpu_governor: nvhost_podgov
+    display: {connector: card1-DP-1, status: connected}
+    session: {service: greetd, status: active}
+    devfreq_oops: absent
+    retained_baseline: tegra-bpmp-initcall-preemption-imbalance-warning
+  protected_validation:
+    status: first-boot-display-and-teardown-passed
+    topology: {protected_vms: [admin-vm, net-vm, gui-vm], guest_memory_mib: 8192, host_memory_cap_gib: 12}
+    gui_assignment: {resources: 11, iommu: pkvm-iommu, protection: protected-without-firmware}
+    input: {mode: host-mediated-evdev, trusted_input: false, usb_receiver: "046d:c52b"}
+    image:
+      store_path: /nix/store/v7yqiifg9vk0d0afd0wlg8z59xfb5xnw-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+      size_bytes: 10658775590
+      sha256: f2bb91b3ac35554d206705058042ce2bca4f8cd6892311150d1665e70815d782
+      source_form: local-path-overrides
+    pinned_rebuild:
+      store_path: /nix/store/xqrd52g7didgyndj1ll4d3qvr3f8xqga-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu
+      size_bytes: 10659015662
+      sha256: d7fb593a8227a436e98a6824a9bffee37363ca96011a651400f3023e5bce22bb
+      source_form: published-immutable-pins
+      flashed: false
+    pull_requests: {linux_pkvm: 3, ghaf_crosvm: 14, jetpack_nixos: 23, ghaf: 2190}
+    focused_check: checks.x86_64-linux.orin-crosvm-targets
+    runtime: {kernel: 7.1.7, autostart: true, drm: present, dp1: connected, mode: 3440x1440, fence_errors: 0, host1x_open_errors: 0, first_teardown: passed, rm_deinit: success, critical_scan: clean}
+    limitations: {gpu_physical_sg_iommu_bypass: true, hardware_engine_reset: deferred, same_boot_restart: unsupported, dce_ffff: known-nonfatal}
 
 ghaf:
   old_base: 87632d714a64ddd63164f354bba9a460a2d700c4

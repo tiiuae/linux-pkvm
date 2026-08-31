@@ -4,10 +4,11 @@
 Ghaf Orin pKVM Provenance
 ==========================
 
-This document describes the immutable ``orin-pkvm-v55`` source generation and
-the validated protected-PCI WLAN R2 follow-up.  The machine-readable source of
-truth is ``pkvm-provenance.yaml`` in this directory.  Update both files in one
-commit whenever a dependency changes.
+This document describes the immutable ``orin-pkvm-v55`` source generation,
+the validated protected-PCI WLAN R2 follow-up, and the protected accelerated
+GUIVM R3 development generation.  The machine-readable source of truth is
+``pkvm-provenance.yaml`` in this directory.  Update both files in one commit
+whenever a dependency changes.
 
 Layer Contract
 ==============
@@ -18,7 +19,10 @@ device-assignment work.  The ``integration/orin-pkvm-v7.1.7-r1`` branch has
 the port head as its exact first parent and adds only Ghaf/Orin integration,
 diagnostics, and this provenance record.  The
 ``integration/orin-pkvm-v7.1.7-r2`` branch starts at the immutable R1 head and
-adds the protected-PCI WLAN series without changing the v55 tag.
+adds the protected-PCI WLAN series without changing the v55 tag.  The
+``integration/orin-pkvm-v7.1.7-r3`` branch starts at the validated R2 head and
+adds the protected GPU/display reset contract.  R3 does not move either the
+v55 tag or the R2 boundary.
 
 Validated branches are immutable.  A new Linux stable base creates a new
 ``v7.1.x-rN`` port and integration pair instead of rewriting this generation.
@@ -134,7 +138,7 @@ minimum evidence that must be refreshed when the row changes.
    * - ghaf-crosvm-create-vm
      - Crosvm source at ``aa2478bef075``
      - Ghaf protected-create-VM compatibility patch
-     - Protected AdminVM, NetVM, and ChromiumVM
+     - Protected AdminVM, NetVM, and ChromiumVM (R1/R2) or GUIVM (R3)
      - Target check and three active protected VMs
    * - ghaf-tfa
      - TF-A source selected through Jetpack/Ghaf
@@ -149,13 +153,38 @@ minimum evidence that must be refreshed when the row changes.
    * - ghaf-service-plane
      - ``microvm-pr586`` and ``orin-pkvm-v55`` interfaces
      - No generated kernel patch
-     - AdminVM, NetVM, ChromiumVM ordering and policy
+     - AdminVM, NetVM, and ChromiumVM (R1/R2) or GUIVM (R3) ordering and policy
      - Three protected VMs and independent NetVM recovery
    * - kernel-pci-wlan-r2
      - Linux PCI, Tegra194 PCIe, and ``orin-pkvm-v55`` interfaces
      - Eight commits, ``8186853a2517`` through ``24e85e20b92b``
      - Protected RTL8822CE registration, reset, BAR, DMA, and MSI handling
      - Build, traffic, active teardown, cycles, and clean fault scans
+   * - kernel-guivm-reset-r3
+     - Linux pKVM device lifecycle, Linux Host1x, and NVIDIA L4T R36.5 GPU/display register contracts
+     - Seven-commit R3 series, ``262b04e976f7`` through ``7a290b85d632``; final reset policy below
+     - Protected assignment of the eleven accelerated GUIVM platform resources
+     - Kernel build, protected boot, accelerated display, and first teardown
+   * - jetpack-guivm-linux71
+     - NVIDIA L4T R36.5 GPU/display sources and Linux 7.1 APIs
+     - ``jetpack-nixos`` PR #23, ``6d1f6fb`` through ``278ebc4``
+     - Linux 7.1 accelerated GUIVM module closure and devfreq governor
+     - Full cross image and identified-AGX protected GUI runtime
+   * - ghaf-guivm-linux71
+     - ``jetpack-guivm-linux71`` and Ghaf PR #2133/#2144/#2188 stack
+     - Ghaf commit ``21f986176``
+     - Intermediate unprotected accelerated GUIVM before protected composition
+     - Linux 7.1.8, ``nvhost_podgov``, DP-1, greetd, and clean devfreq fault scan
+   * - ghaf-device-manager-guivm-evdev
+     - ``ghaf-device-manager`` merged overlay baseline ``97835a588f65``
+     - Opt-in USB evdev commit ``20148e27488e``
+     - Host owns ``046d:c52b`` and forwards the ``Logitech K400 Plus`` event stream to GUIVM
+     - Unit tests, Clippy, REUSE, generated config, and runtime input
+   * - ghaf-protected-guivm-r3
+     - ``kernel-guivm-reset-r3``, ``jetpack-guivm-linux71``, Crosvm PR #14, and ``ghaf-device-manager-guivm-evdev``
+     - Ghaf commits ``16b65edbc0b5`` through ``03f4b5f91``
+     - Protected AdminVM, NetVM, and accelerated GUIVM; 11 GPU/display resources via ``pkvm-iommu``
+     - Full cross image, protected boot, accelerated display, and first teardown
    * - microvm-pci-wlan
      - ``microvm-nix/microvm.nix#586`` interfaces
      - Draft PR #589, ``254dccf3f126``
@@ -171,6 +200,44 @@ minimum evidence that must be refreshed when the row changes.
      - Draft Ghaf PR #2188, ``e48209099c0b``
      - Assign onboard ``10ec:c822`` to protected NetVM
      - Full image and identified-AGX Wi-Fi runtime campaign
+
+R3 GPUVM Reset Mapping
+=======================
+
+The initial R3 reset implementation was source-derived from Linux and NVIDIA
+register contracts.  Hardware testing showed that EL2 accesses to those
+registers can trigger fatal Tegra CBB ``PWRDOWN_ERR`` faults because the guest
+power-gates the engines before teardown.  Commit ``7a290b85d632`` therefore
+replaces every GUI resource's register-level callback with an explicit
+deferred-reset callback.  Device admission remains explicit, while generic
+teardown still blocks DMA and reclaims every non-shared aperture.  Update this
+table and the matching YAML ``gui_vm_r3.reset_contract`` entries when a future
+implementation can hold the required BPMP power domains on safely.
+
+.. list-table:: External Reset Contracts And Internal GPUVM Resources
+   :header-rows: 1
+   :widths: 21 27 24 18 10
+
+   * - Resources
+     - External contract
+     - R3 adaptation
+     - Internal consumer
+     - Reset class
+   * - ``vm_hs_p``, ``vm_cma_p``, ``scanout_p``, ``disp_caps_pt``, ``disp_cursor_pt``
+     - Jetpack manifest plus NVIDIA capability and cursor contracts
+     - Explicit callback with no register access
+     - Memory and PIO wrapper resources
+     - Deferred
+   * - ``disp_chan_pt``, ``17000000.gpu``, ``13e00000.host1x_pt``
+     - NVIDIA display/GA10B and Linux Host1x reset contracts
+     - Defer register access until pKVM owns the BPMP power-domain lifetime
+     - Display, GPU, and Host1x DMA engines
+     - Deferred
+   * - ``15340000.vic``, ``15480000.nvdec``, ``15540000.nvjpg``
+     - NVIDIA Falcon and Linux NVDEC firmware-control contracts
+     - Defer register access until pKVM owns the BPMP power-domain lifetime
+     - VIC, NVDEC, and NVJPG engines
+     - Deferred
 
 Source Anchors
 ==============
@@ -337,3 +404,50 @@ It is a separate Nix realization from the locally sourced flashed artifact,
 not a byte-identity claim.  The kernel, Crosvm, and microvm source trees used
 for the runtime campaign are exactly the trees published at the pinned
 commits above.
+
+Protected Accelerated GUIVM R3 Boundary
+========================================
+
+The R3 code boundary is ``7a290b85d632`` on draft linux-pkvm PR #3.  Draft
+Crosvm PR #14 ends at ``06178f3cb57e`` and draft Jetpack PR #23 ends at
+``278ebc4004ca``.  Ghaf draft PR #2190 pins those exact commits at
+``03f4b5f918ab``.  PR #2190 is logically stacked on PR #2188 without
+rewriting it; because the parent is a contributor-fork branch, the draft
+temporarily targets ``main`` and displays the inherited stack.
+
+The hardware-tested image is
+``/nix/store/v7yqiifg9vk0d0afd0wlg8z59xfb5xnw-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu``.
+It is 10,658,775,590 bytes with SHA-256
+``f2bb91b3ac35554d206705058042ce2bca4f8cd6892311150d1665e70815d782``.
+It used local source overrides and was flashed only to AGX TOPO serial
+``TOPOED73D35C`` with the long ``--signed-sd-image`` and ``--usb-instance``
+options.  Secure boot was not requested, NX APX was absent, and persistent
+``/tmp/rcm_state`` remained unchanged.
+
+On a fresh production boot, protected AdminVM, NetVM, and GUIVM autostarted
+with zero service restarts.  Host and GUIVM ran Linux 7.1.7.  GUIVM loaded
+``host1x_fence``, ``nvgpu``, ``nvmap``, ``host1x``, and ``tegra_drm``;
+exposed the fence and DRM nodes; ran greetd and COSMIC; and reported DP-1
+connected with 3440x1440 available.  At 202.58 seconds, fence-allocation and
+host1x-open error counts were zero.  One teardown printed
+``RmDeInit completed successfully`` and exited successfully while AdminVM and
+NetVM remained active.  Host and guest critical signature scans were empty.
+
+An exact committed-source rebuild passed at
+``/nix/store/57wms1dk66arv5w3rjzsdsvbhhxi0ag1-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu``.
+It is 10,660,011,930 bytes with SHA-256
+``d0d8ec0ede76d4d98e86dd7da584aa3f6c3d615c15a667f8d0c12ca76c477684``.
+The independent rebuild from only the published immutable pins also passed
+at
+``/nix/store/xqrd52g7didgyndj1ll4d3qvr3f8xqga-nixos-image-sd-card-26.11.20260819.ffb3c9b-aarch64-linux.img.zst-aarch64-unknown-linux-gnu``.
+It is 10,659,015,662 bytes with SHA-256
+``d7fb593a8227a436e98a6824a9bffee37363ca96011a651400f3023e5bce22bb``.
+Both rebuilds are unflashed source/build gates, not byte-identity claims for
+the hardware-tested artifact.  ``nix fmt -- --fail-on-change``, REUSE over
+887 files, and ``checks.x86_64-linux.orin-crosvm-targets`` passed.
+
+R3 is not yet a security-complete protected desktop.  GA10B physical
+scatterlists bypass guest-IOMMU translation, GUI engine hardware reset is
+deferred while the blocks are power-gated, and same-boot GUIVM restart is not
+supported.  The DCE ``0xffff`` diagnostic remains known and non-fatal.  The
+successful first teardown does not satisfy those follow-up gates.

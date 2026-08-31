@@ -15,13 +15,20 @@ struct pkvm_device_ops {
 };
 
 /*
- * @base: physical address of MMIO resource.
+ * @base: physical address of the resource.
  * @size: size of resource in bytes.
+ * @flags: PKVM_DEV_RESOURCE_* flags.
+ * @mapped: whether a shared resource is currently mapped by its guest.
  */
 struct pkvm_dev_resource {
 	u64 base;
 	u64 size;
+	u32 flags;
+	bool mapped;
 };
+
+/* The host and guest intentionally share this device-backed aperture. */
+#define PKVM_DEV_RESOURCE_SHARED	1U
 
 /*
  * @id: hypervisor ID of the IOMMU as defined by the driver.
@@ -53,6 +60,8 @@ struct pkvm_hyp_vcpu;
 int pkvm_devices_get_context(u64 iommu_id, u32 endpoint_id,
 			     struct pkvm_hyp_vm *vm);
 void pkvm_devices_put_context(u64 iommu_id, u32 endpoint_id);
+bool pkvm_device_is_shared_resource(struct pkvm_hyp_vm *vm, u64 phys,
+				    size_t size);
 int pkvm_init_devices(void);
 int pkvm_device_hyp_assign_mmio(u64 pfn, u64 nr_pages);
 int pkvm_device_reclaim_mmio(u64 pfn, u64 nr_pages);

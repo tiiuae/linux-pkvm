@@ -82,6 +82,10 @@ int pkvm_reclaim_guest_mmio_to_host(u64 phys, u64 size);
 int hyp_check_range_owned(u64 phys, u64 size);
 int __pkvm_install_guest_mmio(struct pkvm_hyp_vcpu *hyp_vcpu,
 			      u64 pfn, u64 gfn);
+int pkvm_map_guest_shared_resource(struct pkvm_hyp_vcpu *hyp_vcpu,
+				   u64 phys, u64 size);
+int pkvm_unmap_guest_shared_resource(struct pkvm_hyp_vm *vm,
+				     u64 phys, u64 size);
 
 static __always_inline void __load_host_stage2(void)
 {
